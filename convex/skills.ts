@@ -39,6 +39,16 @@ export const getBySlug = query({
   },
 })
 
+export const getSkillBySlugInternal = internalQuery({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    return ctx.db
+      .query('skills')
+      .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+      .unique()
+  },
+})
+
 export const list = query({
   args: {
     batch: v.optional(v.string()),
@@ -118,7 +128,7 @@ export const publishVersion: ReturnType<typeof action> = action({
     ),
   },
   handler: async (ctx, args): Promise<PublishResult> => {
-    await requireUserFromAction(ctx)
+    const { userId } = await requireUserFromAction(ctx)
 
     const version = args.version.trim()
     const slug = args.slug.trim().toLowerCase()
@@ -130,8 +140,10 @@ export const publishVersion: ReturnType<typeof action> = action({
     if (!semver.valid(version)) {
       throw new ConvexError('Version must be valid semver')
     }
-    if (!args.changelog.trim()) {
-      throw new ConvexError('Changelog is required')
+    const existingSkill = await ctx.runQuery(internal.skills.getSkillBySlugInternal, { slug })
+    const changelogText = args.changelog.trim()
+    if (existingSkill && !changelogText) {
+      throw new ConvexError('Changelog is required for updates')
     }
 
     const sanitizedFiles = args.files.map((file) => ({
@@ -186,10 +198,11 @@ export const publishVersion: ReturnType<typeof action> = action({
     }
 
     return ctx.runMutation(internal.skills.insertVersion, {
+      userId,
       slug,
       displayName,
       version,
-      changelog: args.changelog.trim(),
+      changelog: changelogText,
       tags: args.tags?.map((tag) => tag.trim()).filter(Boolean),
       files: sanitizedFiles.map((file) => ({
         ...file,
@@ -338,6 +351,7 @@ export const setBatch = mutation({
 
 export const insertVersion = internalMutation({
   args: {
+    userId: v.id('users'),
     slug: v.string(),
     displayName: v.string(),
     version: v.string(),
@@ -360,7 +374,9 @@ export const insertVersion = internalMutation({
     embedding: v.array(v.number()),
   },
   handler: async (ctx, args) => {
-    const { userId } = await requireUser(ctx)
+    const userId = args.userId
+    const user = await ctx.db.get(userId)
+    if (!user || user.deletedAt) throw new Error('User not found')
 
     let skill = await ctx.db
       .query('skills')
