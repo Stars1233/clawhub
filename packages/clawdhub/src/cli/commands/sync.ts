@@ -60,17 +60,7 @@ export async function cmdSync(opts: GlobalOpts, options: SyncOptions, inputAllow
   } else {
     spinner.stop()
   }
-  let skills = scan.skills
-
-  skills = await maybeSelectLocalSkills(skills, {
-    allowPrompt,
-    all: Boolean(options.all),
-  })
-  if (skills.length === 0) {
-    outro('Nothing selected.')
-    return
-  }
-
+  const skills = scan.skills
   const candidatesSpinner = createSpinner('Checking registry sync state')
   const candidates: Candidate[] = []
   let supportsResolve: boolean | null = null
@@ -147,23 +137,26 @@ export async function cmdSync(opts: GlobalOpts, options: SyncOptions, inputAllow
   }
 
   const synced = candidates.filter((candidate) => candidate.status === 'synced')
-  if (synced.length > 0) {
-    const lines = synced
-      .map((candidate) => `${candidate.slug}  synced (${candidate.matchVersion ?? 'unknown'})`)
-      .join('\n')
-    note('Already synced', lines)
+  const actionable = candidates.filter((candidate) => candidate.status !== 'synced')
+  const bump = options.bump ?? 'patch'
+
+  if (actionable.length === 0) {
+    if (synced.length > 0) {
+      note('Already synced', formatCommaList(synced.map(formatSyncedSummary), 16))
+    }
+    outro('Nothing to sync.')
+    return
   }
 
-  const actionable = candidates.filter((candidate) => candidate.status !== 'synced')
-  if (actionable.length === 0) {
-    outro('Everything is already synced.')
-    return
+  note('To sync', formatBulletList(actionable.map((candidate) => formatActionableLine(candidate, bump))))
+  if (synced.length > 0) {
+    note('Already synced', formatBulletList(synced.map(formatSyncedLine)))
   }
 
   const selected = await selectToUpload(actionable, {
     allowPrompt,
     all: Boolean(options.all),
-    bump: options.bump ?? 'patch',
+    bump,
   })
   if (selected.length === 0) {
     outro('Nothing selected.')
@@ -175,7 +168,6 @@ export async function cmdSync(opts: GlobalOpts, options: SyncOptions, inputAllow
     return
   }
 
-  const bump = options.bump ?? 'patch'
   const tags = options.tags ?? 'latest'
 
   for (const skill of selected) {
@@ -216,34 +208,6 @@ async function scanRoots(roots: string[]) {
   return { skills: Array.from(byFolder.values()), rootsWithSkills }
 }
 
-async function maybeSelectLocalSkills(
-  skills: SkillFolder[],
-  params: { allowPrompt: boolean; all: boolean },
-): Promise<SkillFolder[]> {
-  if (params.all || !params.allowPrompt) return skills
-  if (skills.length <= 30) return skills
-
-  const valueByKey = new Map<string, SkillFolder>()
-  const choices = skills.map((skill) => {
-    const key = skill.folder
-    valueByKey.set(key, skill)
-    return {
-      value: key,
-      label: skill.slug,
-      hint: abbreviatePath(skill.folder),
-    }
-  })
-
-  const picked = await multiselect({
-    message: `Found ${skills.length} local skills — select what to sync`,
-    options: choices,
-    initialValues: [],
-    required: false,
-  })
-  if (isCancel(picked)) fail('Canceled')
-  return picked.map((key) => valueByKey.get(String(key))).filter(Boolean) as SkillFolder[]
-}
-
 async function selectToUpload(
   candidates: Candidate[],
   params: { allowPrompt: boolean; all: boolean; bump: 'patch' | 'minor' | 'major' },
@@ -254,21 +218,17 @@ async function selectToUpload(
   const choices = candidates.map((candidate) => {
     const key = candidate.folder
     valueByKey.set(key, candidate)
-    const latest = candidate.latestVersion
-    const next = latest ? semver.inc(latest, params.bump) : null
-    const status =
-      candidate.status === 'new' ? 'NEW' : latest && next ? `UPDATE ${latest} → ${next}` : 'UPDATE'
     return {
       value: key,
-      label: `${candidate.slug}  ${status}`,
-      hint: candidate.folder,
+      label: `${candidate.slug}  ${formatActionableStatus(candidate, params.bump)}`,
+      hint: `${abbreviatePath(candidate.folder)} | ${candidate.fileCount} files`,
     }
   })
 
   const picked = await multiselect({
     message: 'Select skills to upload',
     options: choices,
-    initialValues: candidates.length <= 10 ? choices.map((choice) => choice.value) : [],
+    initialValues: choices.map((choice) => choice.value),
     required: false,
   })
   if (isCancel(picked)) fail('Canceled')
@@ -329,4 +289,41 @@ function abbreviatePath(value: string) {
   const home = homedir()
   if (value.startsWith(home)) return `~${value.slice(home.length)}`
   return value
+}
+
+function formatActionableStatus(
+  candidate: Candidate,
+  bump: 'patch' | 'minor' | 'major',
+): string {
+  if (candidate.status === 'new') return 'NEW'
+  const latest = candidate.latestVersion
+  const next = latest ? semver.inc(latest, bump) : null
+  if (latest && next) return `UPDATE ${latest} → ${next}`
+  return 'UPDATE'
+}
+
+function formatActionableLine(candidate: Candidate, bump: 'patch' | 'minor' | 'major'): string {
+  return `${candidate.slug}  ${formatActionableStatus(candidate, bump)}  (${candidate.fileCount} files)`
+}
+
+function formatSyncedLine(candidate: Candidate): string {
+  const version = candidate.matchVersion ?? candidate.latestVersion ?? 'unknown'
+  return `${candidate.slug}  synced (${version})`
+}
+
+function formatSyncedSummary(candidate: Candidate): string {
+  const version = candidate.matchVersion ?? candidate.latestVersion
+  return version ? `${candidate.slug}@${version}` : candidate.slug
+}
+
+function formatBulletList(lines: string[]): string {
+  return lines.map((line) => `- ${line}`).join('\n')
+}
+
+function formatCommaList(values: string[], max: number) {
+  if (values.length === 0) return ''
+  if (values.length <= max) return values.join(', ')
+  const head = values.slice(0, Math.max(1, max - 1))
+  const rest = values.length - head.length
+  return `${head.join(', ')}, ... +${rest} more`
 }
