@@ -1,7 +1,7 @@
 import { useAuthActions } from '@convex-dev/auth/react'
 import { Link } from '@tanstack/react-router'
 import { useConvexAuth, useQuery } from 'convex/react'
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { Menu, Monitor, Moon, Sun } from 'lucide-react'
 import { useRef } from 'react'
 import { api } from '../../convex/_generated/api'
 import { gravatarUrl } from '../lib/gravatar'
@@ -26,6 +26,7 @@ export default function Header() {
   const avatar = me?.image ?? (me?.email ? gravatarUrl(me.email) : undefined)
   const handle = me?.handle ?? me?.displayName ?? 'user'
   const initial = (me?.displayName ?? me?.name ?? handle).charAt(0).toUpperCase()
+  const isModerator = me?.role === 'admin' || me?.role === 'moderator'
 
   return (
     <header className="navbar">
@@ -34,7 +35,7 @@ export default function Header() {
           <span className="brand-mark">
             <img src="/clawd-logo.png" alt="" aria-hidden="true" />
           </span>
-          ClawdHub
+          <span className="brand-name">ClawdHub</span>
         </Link>
         <nav className="nav-links">
           <Link
@@ -54,9 +55,52 @@ export default function Header() {
             Search
           </Link>
           {me ? <Link to="/stars">Stars</Link> : null}
-          {me?.role === 'admin' || me?.role === 'moderator' ? <Link to="/admin">Admin</Link> : null}
+          {isModerator ? <Link to="/admin">Admin</Link> : null}
         </nav>
         <div className="nav-actions">
+          <div className="nav-mobile">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="nav-mobile-trigger" type="button" aria-label="Open menu">
+                  <Menu className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link
+                    to="/skills"
+                    search={{
+                      q: undefined,
+                      sort: undefined,
+                      dir: undefined,
+                      highlighted: undefined,
+                      view: undefined,
+                    }}
+                  >
+                    Skills
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/upload">Upload</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/search" search={{ q: undefined, highlighted: undefined }}>
+                    Search
+                  </Link>
+                </DropdownMenuItem>
+                {me ? (
+                  <DropdownMenuItem asChild>
+                    <Link to="/stars">Stars</Link>
+                  </DropdownMenuItem>
+                ) : null}
+                {isModerator ? (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin">Admin</Link>
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <ToggleGroup
             ref={toggleRef}
             type="single"

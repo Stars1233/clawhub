@@ -125,7 +125,7 @@ export function SkillDetailPage({
 
   return (
     <main className="section">
-      <div className="grid" style={{ gridTemplateColumns: '2fr 1fr' }}>
+      <div className="skill-detail-grid">
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="card">
             <h1 className="section-title" style={{ margin: 0 }}>

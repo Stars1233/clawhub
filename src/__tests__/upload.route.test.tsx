@@ -142,7 +142,9 @@ describe('Upload route', () => {
     fireEvent.click(screen.getByRole('button', { name: /publish/i }))
     await waitFor(() => {
       expect(
-        publishVersion.mock.calls.some((call) => Array.isArray((call[0] as { files?: unknown }).files)),
+        publishVersion.mock.calls.some((call) =>
+          Array.isArray((call[0] as { files?: unknown }).files),
+        ),
       ).toBe(true)
     })
     const args = publishVersion.mock.calls

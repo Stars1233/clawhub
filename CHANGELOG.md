@@ -11,6 +11,7 @@
 ### Fixed
 - Web: skill detail shows a loading state instead of flashing "Skill not found".
 - Web: user profile shows avatar + loading state (no "User not found" flash).
+- Web: improved mobile responsiveness (nav menu, skill detail layout, install command overflow).
 - Web: upload now unwraps folder picks so `SKILL.md` can be at the bundle root.
 - Registry: cap embedding payload size to avoid model context errors.
 - CLI: ignore legacy `auth.clawdhub.com` registry and prefer site discovery.
