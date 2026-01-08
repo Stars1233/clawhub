@@ -16,7 +16,6 @@ count.txt
 .wrangler
 .output
 .vinxi
-*.bun-build
 todos.json
 .cta.json
 .vscode

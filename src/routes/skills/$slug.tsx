@@ -9,6 +9,7 @@ export const Route = createFileRoute('/skills/$slug')({
       owner: data?.owner ?? null,
       displayName: data?.displayName ?? null,
       summary: data?.summary ?? null,
+      version: data?.version ?? null,
     }
   },
   head: ({ params, loaderData }) => {
@@ -17,6 +18,7 @@ export const Route = createFileRoute('/skills/$slug')({
       owner: loaderData?.owner ?? null,
       displayName: loaderData?.displayName,
       summary: loaderData?.summary,
+      version: loaderData?.version ?? null,
     })
     return {
       links: [

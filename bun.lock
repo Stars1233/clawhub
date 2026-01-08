@@ -13,6 +13,7 @@
         "@monaco-editor/react": "^4.7.0",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
         "@radix-ui/react-toggle-group": "^1.1.11",
+        "@resvg/resvg-wasm": "^2.6.2",
         "@tailwindcss/vite": "^4.1.18",
         "@tanstack/react-devtools": "^0.9.0",
         "@tanstack/react-router": "^1.144.0",
@@ -24,6 +25,7 @@
         "clsx": "^2.1.1",
         "convex": "^1.31.2",
         "fflate": "^0.8.2",
+        "h3": "2.0.1-rc.5",
         "lucide-react": "^0.562.0",
         "monaco-editor": "^0.55.1",
         "nitro": "^3.0.1-alpha.1",
@@ -58,7 +60,7 @@
     },
     "packages/clawdhub": {
       "name": "clawdhub",
-      "version": "0.0.5",
+      "version": "0.1.0",
       "bin": {
         "clawdhub": "bin/clawdhub.js",
       },
@@ -437,6 +439,8 @@
     "@radix-ui/react-use-size": ["@radix-ui/react-use-size@1.1.1", "", { "dependencies": { "@radix-ui/react-use-layout-effect": "1.1.1" }, "peerDependencies": { "@types/react": "*", "react": "^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" }, "optionalPeers": ["@types/react"] }, "sha512-ewrXRDTAqAXlkl6t/fkXWNAhFX9I+CkKlw6zjEwk86RSPKwZr3xpBRso655aqYafwtnbpHLj6toFzmd6xdVptQ=="],
 
     "@radix-ui/rect": ["@radix-ui/rect@1.1.1", "", {}, "sha512-HPwpGIzkl28mWyZqG52jiqDJ12waP11Pa1lGoiyUkIEuMLBP0oeK/C89esbXrxsky5we7dfd8U58nm0SgAWpVw=="],
+
+    "@resvg/resvg-wasm": ["@resvg/resvg-wasm@2.6.2", "", {}, "sha512-FqALmHI8D4o6lk/LRWDnhw95z5eO+eAa6ORjVg09YRR7BkcM6oPHU9uyC0gtQG5vpFLvgpeU4+zEAz2H8APHNw=="],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-beta.53", "", {}, "sha512-vENRlFU4YbrwVqNDZ7fLvy+JR1CRkyr01jhSiDpE1u6py3OMzQfztQU2jxykW3ALNxO4kSlqIDeYyD0Y9RcQeQ=="],
 

@@ -3,6 +3,7 @@ type SkillMetaSource = {
   owner?: string | null
   displayName?: string | null
   summary?: string | null
+  version?: string | null
 }
 
 type SkillMeta = {
@@ -33,11 +34,13 @@ export async function fetchSkillMeta(slug: string) {
     const payload = (await response.json()) as {
       skill?: { displayName?: string; summary?: string | null } | null
       owner?: { handle?: string | null } | null
+      latestVersion?: { version?: string | null } | null
     }
     return {
       displayName: payload.skill?.displayName ?? null,
       summary: payload.skill?.summary ?? null,
       owner: payload.owner?.handle ?? null,
+      version: payload.latestVersion?.version ?? null,
     }
   } catch {
     return null
@@ -49,14 +52,21 @@ export function buildSkillMeta(source: SkillMetaSource): SkillMeta {
   const owner = clean(source.owner)
   const displayName = clean(source.displayName) || clean(source.slug)
   const summary = clean(source.summary)
+  const version = clean(source.version)
   const title = `${displayName} — ClawdHub`
   const description =
     summary || (owner ? `Agent skill by @${owner} on ClawdHub.` : DEFAULT_DESCRIPTION)
   const url = owner ? `${siteUrl}/${owner}/${source.slug}` : `${siteUrl}/skills/${source.slug}`
+  const imageParams = new URLSearchParams()
+  imageParams.set('slug', source.slug)
+  imageParams.set('title', displayName)
+  if (owner) imageParams.set('owner', owner)
+  if (version) imageParams.set('version', version)
+  if (summary) imageParams.set('description', truncate(summary, 200))
   return {
     title,
     description: truncate(description, 200),
-    image: `${siteUrl}/og.png`,
+    image: `${siteUrl}/og/skill.png?${imageParams.toString()}`,
     url,
     owner: owner || null,
   }
