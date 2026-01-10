@@ -273,6 +273,7 @@ function parsePublishBody(body: unknown) {
     version: parsed.version,
     changelog: parsed.changelog,
     tags,
+    source: parsed.source ?? undefined,
     forkOf: parsed.forkOf
       ? {
           slug: parsed.forkOf.slug,

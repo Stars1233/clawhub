@@ -57,6 +57,15 @@ export declare const CliPublishFileSchema: import("arktype/internal/variants/obj
     contentType?: string | undefined;
 }, {}>;
 export type CliPublishFile = (typeof CliPublishFileSchema)[inferred];
+export declare const PublishSourceSchema: import("arktype/internal/variants/object.ts").ObjectType<{
+    kind: "github";
+    url: string;
+    repo: string;
+    ref: string;
+    commit: string;
+    path: string;
+    importedAt: number;
+}, {}>;
 export declare const CliPublishRequestSchema: import("arktype/internal/variants/object.ts").ObjectType<{
     slug: string;
     displayName: string;
@@ -70,6 +79,15 @@ export declare const CliPublishRequestSchema: import("arktype/internal/variants/
         contentType?: string | undefined;
     }[];
     tags?: string[] | undefined;
+    source?: {
+        kind: "github";
+        url: string;
+        repo: string;
+        ref: string;
+        commit: string;
+        path: string;
+        importedAt: number;
+    } | undefined;
     forkOf?: {
         slug: string;
         version?: string | undefined;

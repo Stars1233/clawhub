@@ -15,12 +15,17 @@ import {
 } from './httpApi'
 import {
   listSkillsV1Http,
+  listSoulsV1Http,
   publishSkillV1Http,
+  publishSoulV1Http,
   resolveSkillVersionV1Http,
   searchSkillsV1Http,
   skillsDeleteRouterV1Http,
   skillsGetRouterV1Http,
   skillsPostRouterV1Http,
+  soulsDeleteRouterV1Http,
+  soulsGetRouterV1Http,
+  soulsPostRouterV1Http,
   whoamiV1Http,
 } from './httpApiV1'
 
@@ -80,6 +85,36 @@ http.route({
   path: ApiRoutes.whoami,
   method: 'GET',
   handler: whoamiV1Http,
+})
+
+http.route({
+  path: ApiRoutes.souls,
+  method: 'GET',
+  handler: listSoulsV1Http,
+})
+
+http.route({
+  pathPrefix: `${ApiRoutes.souls}/`,
+  method: 'GET',
+  handler: soulsGetRouterV1Http,
+})
+
+http.route({
+  path: ApiRoutes.souls,
+  method: 'POST',
+  handler: publishSoulV1Http,
+})
+
+http.route({
+  pathPrefix: `${ApiRoutes.souls}/`,
+  method: 'POST',
+  handler: soulsPostRouterV1Http,
+})
+
+http.route({
+  pathPrefix: `${ApiRoutes.souls}/`,
+  method: 'DELETE',
+  handler: soulsDeleteRouterV1Http,
 })
 
 // TODO: remove legacy /api routes after deprecation window.

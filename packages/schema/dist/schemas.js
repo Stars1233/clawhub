@@ -53,12 +53,22 @@ export const CliPublishFileSchema = type({
     sha256: 'string',
     contentType: 'string?',
 });
+export const PublishSourceSchema = type({
+    kind: '"github"',
+    url: 'string',
+    repo: 'string',
+    ref: 'string',
+    commit: 'string',
+    path: 'string',
+    importedAt: 'number',
+});
 export const CliPublishRequestSchema = type({
     slug: 'string',
     displayName: 'string',
     version: 'string',
     changelog: 'string',
     tags: 'string[]?',
+    source: PublishSourceSchema.optional(),
     forkOf: type({
         slug: 'string',
         version: 'string?',

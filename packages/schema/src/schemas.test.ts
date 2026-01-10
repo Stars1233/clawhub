@@ -36,6 +36,30 @@ describe('clawdhub-schema', () => {
     expect(payload.files[0]?.path).toBe('SKILL.md')
   })
 
+  it('accepts publish payload with github source', () => {
+    const payload = parseArk(
+      CliPublishRequestSchema,
+      {
+        slug: 'demo',
+        displayName: 'Demo',
+        version: '1.0.0',
+        changelog: '',
+        source: {
+          kind: 'github',
+          url: 'https://github.com/example/demo',
+          repo: 'example/demo',
+          ref: 'main',
+          commit: 'abc123',
+          path: '.',
+          importedAt: 123,
+        },
+        files: [{ path: 'SKILL.md', size: 1, storageId: 's', sha256: 'x' }],
+      },
+      'Publish payload',
+    )
+    expect(payload.source?.repo).toBe('example/demo')
+  })
+
   it('parses well-known config', () => {
     expect(
       parseArk(WellKnownConfigSchema, { registry: 'https://example.convex.site' }, 'WellKnown'),

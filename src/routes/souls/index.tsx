@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery } from 'convex/react'
-import { useEffect, useMemo, useState } from 'react'
+import { useAction, useQuery } from 'convex/react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
-import { SkillCard } from '../../components/SkillCard'
+import { SoulCard } from '../../components/SoulCard'
 
-const sortKeys = ['newest', 'downloads', 'installs', 'stars', 'name', 'updated'] as const
+const sortKeys = ['newest', 'downloads', 'stars', 'name', 'updated'] as const
 type SortKey = (typeof sortKeys)[number]
 type SortDir = 'asc' | 'desc'
 
@@ -20,47 +20,51 @@ function parseDir(value: unknown, sort: SortKey): SortDir {
   return sort === 'name' ? 'asc' : 'desc'
 }
 
-export const Route = createFileRoute('/skills/')({
+export const Route = createFileRoute('/souls/')({
   validateSearch: (search) => {
     return {
       q: typeof search.q === 'string' && search.q.trim() ? search.q : undefined,
       sort: typeof search.sort === 'string' ? parseSort(search.sort) : undefined,
       dir: search.dir === 'asc' || search.dir === 'desc' ? search.dir : undefined,
-      highlighted: search.highlighted === '1' || search.highlighted === 'true' ? true : undefined,
       view: search.view === 'cards' || search.view === 'list' ? search.view : undefined,
     }
   },
-  component: SkillsIndex,
+  component: SoulsIndex,
 })
 
-function SkillsIndex() {
+function SoulsIndex() {
   const navigate = Route.useNavigate()
   const search = Route.useSearch()
   const sort = search.sort ?? 'newest'
   const dir = parseDir(search.dir, sort)
   const view = search.view ?? 'list'
-  const highlightedOnly = search.highlighted ?? false
   const [query, setQuery] = useState(search.q ?? '')
 
-  const skills = useQuery(api.skills.list, { limit: 500 }) as Doc<'skills'>[] | undefined
-  const isLoadingSkills = skills === undefined
+  const souls = useQuery(api.souls.list, { limit: 500 }) as Doc<'souls'>[] | undefined
+  const ensureSoulSeeds = useAction(api.seed.ensureSoulSeeds)
+  const seedEnsuredRef = useRef(false)
+  const isLoadingSouls = souls === undefined
 
   useEffect(() => {
     setQuery(search.q ?? '')
   }, [search.q])
 
+  useEffect(() => {
+    if (seedEnsuredRef.current) return
+    seedEnsuredRef.current = true
+    void ensureSoulSeeds({})
+  }, [ensureSoulSeeds])
+
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase()
-    const all = (skills ?? []).filter((skill) =>
-      highlightedOnly ? skill.batch === 'highlighted' : true,
-    )
+    const all = souls ?? []
     if (!value) return all
-    return all.filter((skill) => {
-      if (skill.slug.toLowerCase().includes(value)) return true
-      if (skill.displayName.toLowerCase().includes(value)) return true
-      return (skill.summary ?? '').toLowerCase().includes(value)
+    return all.filter((soul) => {
+      if (soul.slug.toLowerCase().includes(value)) return true
+      if (soul.displayName.toLowerCase().includes(value)) return true
+      return (soul.summary ?? '').toLowerCase().includes(value)
     })
-  }, [highlightedOnly, query, skills])
+  }, [query, souls])
 
   const sorted = useMemo(() => {
     const multiplier = dir === 'asc' ? 1 : -1
@@ -69,8 +73,6 @@ function SkillsIndex() {
       switch (sort) {
         case 'downloads':
           return (a.stats.downloads - b.stats.downloads) * multiplier
-        case 'installs':
-          return ((a.stats.installsAllTime ?? 0) - (b.stats.installsAllTime ?? 0)) * multiplier
         case 'stars':
           return (a.stats.stars - b.stats.stars) * multiplier
         case 'updated':
@@ -88,23 +90,19 @@ function SkillsIndex() {
   }, [dir, filtered, sort])
 
   const showing = sorted.length
-  const total = skills?.filter((skill) =>
-    highlightedOnly ? skill.batch === 'highlighted' : true,
-  ).length
+  const total = souls?.length
 
   return (
     <main className="section">
       <header className="skills-header">
         <div>
           <h1 className="section-title" style={{ marginBottom: 8 }}>
-            Skills
+            Souls
           </h1>
           <p className="section-subtitle" style={{ marginBottom: 0 }}>
-            {isLoadingSkills
-              ? 'Loading skills…'
-              : `${showing}${typeof total === 'number' ? ` of ${total}` : ''} skills${
-                  highlightedOnly ? ' (highlighted)' : ''
-                }.`}
+            {isLoadingSouls
+              ? 'Loading souls…'
+              : `${showing}${typeof total === 'number' ? ` of ${total}` : ''} souls.`}
           </p>
         </div>
         <div className="skills-toolbar">
@@ -125,22 +123,6 @@ function SkillsIndex() {
             />
           </div>
           <div className="skills-toolbar-row">
-            <button
-              className={`search-filter-button${highlightedOnly ? ' is-active' : ''}`}
-              type="button"
-              aria-pressed={highlightedOnly}
-              onClick={() => {
-                void navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    highlighted: highlightedOnly ? undefined : true,
-                  }),
-                  replace: true,
-                })
-              }}
-            >
-              Highlighted
-            </button>
             <select
               className="skills-sort"
               value={sort}
@@ -155,12 +137,11 @@ function SkillsIndex() {
                   replace: true,
                 })
               }}
-              aria-label="Sort skills"
+              aria-label="Sort souls"
             >
               <option value="newest">Newest</option>
               <option value="updated">Recently updated</option>
               <option value="downloads">Downloads</option>
-              <option value="installs">Installs</option>
               <option value="stars">Stars</option>
               <option value="name">Name</option>
             </select>
@@ -199,24 +180,22 @@ function SkillsIndex() {
         </div>
       </header>
 
-      {isLoadingSkills ? (
+      {isLoadingSouls ? (
         <div className="card">
-          <div className="loading-indicator">Loading skills…</div>
+          <div className="loading-indicator">Loading souls…</div>
         </div>
       ) : showing === 0 ? (
-        <div className="card">No skills match that filter.</div>
+        <div className="card">No souls match that filter.</div>
       ) : view === 'cards' ? (
         <div className="grid">
-          {sorted.map((skill) => (
-            <SkillCard
-              key={skill._id}
-              skill={skill}
-              badge={skill.batch === 'highlighted' ? 'Highlighted' : undefined}
-              summaryFallback="Agent-ready skill pack."
+          {sorted.map((soul) => (
+            <SoulCard
+              key={soul._id}
+              soul={soul}
+              summaryFallback="A SOUL.md bundle."
               meta={
                 <div className="stat">
-                  ⭐ {skill.stats.stars} · ⤓ {skill.stats.downloads} · ⤒{' '}
-                  {skill.stats.installsAllTime ?? 0}
+                  ⭐ {soul.stats.stars} · ⤓ {soul.stats.downloads} · {soul.stats.versions} v
                 </div>
               }
             />
@@ -224,26 +203,24 @@ function SkillsIndex() {
         </div>
       ) : (
         <div className="skills-list">
-          {sorted.map((skill) => (
+          {sorted.map((soul) => (
             <Link
-              key={skill._id}
+              key={soul._id}
               className="skills-row"
-              to="/skills/$slug"
-              params={{ slug: skill.slug }}
+              to="/souls/$slug"
+              params={{ slug: soul.slug }}
             >
               <div className="skills-row-main">
                 <div className="skills-row-title">
-                  <span>{skill.displayName}</span>
-                  <span className="skills-row-slug">/{skill.slug}</span>
-                  {skill.batch === 'highlighted' ? <span className="tag">Highlighted</span> : null}
+                  <span>{soul.displayName}</span>
+                  <span className="skills-row-slug">/{soul.slug}</span>
                 </div>
-                <div className="skills-row-summary">{skill.summary ?? 'No summary provided.'}</div>
+                <div className="skills-row-summary">{soul.summary ?? 'SOUL.md bundle.'}</div>
               </div>
               <div className="skills-row-metrics">
-                <span>⤓ {skill.stats.downloads}</span>
-                <span>⤒ {skill.stats.installsAllTime ?? 0}</span>
-                <span>★ {skill.stats.stars}</span>
-                <span>{skill.stats.versions} v</span>
+                <span>⤓ {soul.stats.downloads}</span>
+                <span>★ {soul.stats.stars}</span>
+                <span>{soul.stats.versions} v</span>
               </div>
             </Link>
           ))}

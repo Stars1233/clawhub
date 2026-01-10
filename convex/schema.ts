@@ -65,6 +65,27 @@ const skills = defineTable({
   .index('by_updated', ['updatedAt'])
   .index('by_batch', ['batch'])
 
+const souls = defineTable({
+  slug: v.string(),
+  displayName: v.string(),
+  summary: v.optional(v.string()),
+  ownerUserId: v.id('users'),
+  latestVersionId: v.optional(v.id('soulVersions')),
+  tags: v.record(v.string(), v.id('soulVersions')),
+  softDeletedAt: v.optional(v.number()),
+  stats: v.object({
+    downloads: v.number(),
+    stars: v.number(),
+    versions: v.number(),
+    comments: v.number(),
+  }),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_slug', ['slug'])
+  .index('by_owner', ['ownerUserId'])
+  .index('by_updated', ['updatedAt'])
+
 const skillVersions = defineTable({
   skillId: v.id('skills'),
   version: v.string(),
@@ -92,6 +113,32 @@ const skillVersions = defineTable({
   .index('by_skill', ['skillId'])
   .index('by_skill_version', ['skillId', 'version'])
 
+const soulVersions = defineTable({
+  soulId: v.id('souls'),
+  version: v.string(),
+  fingerprint: v.optional(v.string()),
+  changelog: v.string(),
+  changelogSource: v.optional(v.union(v.literal('auto'), v.literal('user'))),
+  files: v.array(
+    v.object({
+      path: v.string(),
+      size: v.number(),
+      storageId: v.id('_storage'),
+      sha256: v.string(),
+      contentType: v.optional(v.string()),
+    }),
+  ),
+  parsed: v.object({
+    frontmatter: v.record(v.string(), v.any()),
+    metadata: v.optional(v.any()),
+  }),
+  createdBy: v.id('users'),
+  createdAt: v.number(),
+  softDeletedAt: v.optional(v.number()),
+})
+  .index('by_soul', ['soulId'])
+  .index('by_soul_version', ['soulId', 'version'])
+
 const skillVersionFingerprints = defineTable({
   skillId: v.id('skills'),
   versionId: v.id('skillVersions'),
@@ -101,6 +148,16 @@ const skillVersionFingerprints = defineTable({
   .index('by_version', ['versionId'])
   .index('by_fingerprint', ['fingerprint'])
   .index('by_skill_fingerprint', ['skillId', 'fingerprint'])
+
+const soulVersionFingerprints = defineTable({
+  soulId: v.id('souls'),
+  versionId: v.id('soulVersions'),
+  fingerprint: v.string(),
+  createdAt: v.number(),
+})
+  .index('by_version', ['versionId'])
+  .index('by_fingerprint', ['fingerprint'])
+  .index('by_soul_fingerprint', ['soulId', 'fingerprint'])
 
 const skillEmbeddings = defineTable({
   skillId: v.id('skills'),
@@ -120,6 +177,24 @@ const skillEmbeddings = defineTable({
     filterFields: ['visibility'],
   })
 
+const soulEmbeddings = defineTable({
+  soulId: v.id('souls'),
+  versionId: v.id('soulVersions'),
+  ownerId: v.id('users'),
+  embedding: v.array(v.number()),
+  isLatest: v.boolean(),
+  isApproved: v.boolean(),
+  visibility: v.string(),
+  updatedAt: v.number(),
+})
+  .index('by_soul', ['soulId'])
+  .index('by_version', ['versionId'])
+  .vectorIndex('by_embedding', {
+    vectorField: 'embedding',
+    dimensions: EMBEDDING_DIMENSIONS,
+    filterFields: ['visibility'],
+  })
+
 const comments = defineTable({
   skillId: v.id('skills'),
   userId: v.id('users'),
@@ -131,6 +206,17 @@ const comments = defineTable({
   .index('by_skill', ['skillId'])
   .index('by_user', ['userId'])
 
+const soulComments = defineTable({
+  soulId: v.id('souls'),
+  userId: v.id('users'),
+  body: v.string(),
+  createdAt: v.number(),
+  softDeletedAt: v.optional(v.number()),
+  deletedBy: v.optional(v.id('users')),
+})
+  .index('by_soul', ['soulId'])
+  .index('by_user', ['userId'])
+
 const stars = defineTable({
   skillId: v.id('skills'),
   userId: v.id('users'),
@@ -139,6 +225,15 @@ const stars = defineTable({
   .index('by_skill', ['skillId'])
   .index('by_user', ['userId'])
   .index('by_skill_user', ['skillId', 'userId'])
+
+const soulStars = defineTable({
+  soulId: v.id('souls'),
+  userId: v.id('users'),
+  createdAt: v.number(),
+})
+  .index('by_soul', ['soulId'])
+  .index('by_user', ['userId'])
+  .index('by_soul_user', ['soulId', 'userId'])
 
 const auditLogs = defineTable({
   actorUserId: v.id('users'),
@@ -221,11 +316,17 @@ export default defineSchema({
   ...authTables,
   users,
   skills,
+  souls,
   skillVersions,
+  soulVersions,
   skillVersionFingerprints,
+  soulVersionFingerprints,
   skillEmbeddings,
+  soulEmbeddings,
   comments,
+  soulComments,
   stars,
+  soulStars,
   auditLogs,
   apiTokens,
   rateLimits,

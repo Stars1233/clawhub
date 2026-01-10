@@ -66,3 +66,61 @@ export const hydrateResults = internalQuery({
     return entries
   },
 })
+
+type HydratedSoulEntry = {
+  embeddingId: Id<'soulEmbeddings'>
+  soul: Doc<'souls'> | null
+  version: Doc<'soulVersions'> | null
+}
+
+type SoulSearchResult = HydratedSoulEntry & { score: number }
+
+export const searchSouls: ReturnType<typeof action> = action({
+  args: {
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<SoulSearchResult[]> => {
+    const query = args.query.trim()
+    if (!query) return []
+    const vector = await generateEmbedding(query)
+    const results = await ctx.vectorSearch('soulEmbeddings', 'by_embedding', {
+      vector,
+      limit: args.limit ?? 10,
+      filter: (q) => q.or(q.eq('visibility', 'latest'), q.eq('visibility', 'latest-approved')),
+    })
+
+    const hydrated = (await ctx.runQuery(internal.search.hydrateSoulResults, {
+      embeddingIds: results.map((result) => result._id),
+    })) as HydratedSoulEntry[]
+
+    const scoreById = new Map<Id<'soulEmbeddings'>, number>(
+      results.map((result) => [result._id, result._score]),
+    )
+
+    return hydrated
+      .map((entry) => ({
+        ...entry,
+        score: scoreById.get(entry.embeddingId) ?? 0,
+      }))
+      .filter((entry) => entry.soul)
+  },
+})
+
+export const hydrateSoulResults = internalQuery({
+  args: { embeddingIds: v.array(v.id('soulEmbeddings')) },
+  handler: async (ctx, args): Promise<HydratedSoulEntry[]> => {
+    const entries: HydratedSoulEntry[] = []
+
+    for (const embeddingId of args.embeddingIds) {
+      const embedding = await ctx.db.get(embeddingId)
+      if (!embedding) continue
+      const soul = await ctx.db.get(embedding.soulId)
+      if (soul?.softDeletedAt) continue
+      const version = await ctx.db.get(embedding.versionId)
+      entries.push({ embeddingId, soul, version })
+    }
+
+    return entries
+  },
+})

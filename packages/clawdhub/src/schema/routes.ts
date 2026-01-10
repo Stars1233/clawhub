@@ -16,5 +16,6 @@ export const ApiRoutes = {
   resolve: '/api/v1/resolve',
   download: '/api/v1/download',
   skills: '/api/v1/skills',
+  souls: '/api/v1/souls',
   whoami: '/api/v1/whoami',
 } as const

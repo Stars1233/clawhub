@@ -2,27 +2,53 @@ import { ConvexError } from 'convex/values'
 import semver from 'semver'
 import { api, internal } from '../_generated/api'
 import type { Doc, Id } from '../_generated/dataModel'
-import type { ActionCtx, MutationCtx } from '../_generated/server'
-import { generateChangelogForPublish } from './changelog'
+import type { ActionCtx } from '../_generated/server'
 import { generateEmbedding } from './embeddings'
 import {
   buildEmbeddingText,
   getFrontmatterMetadata,
+  getFrontmatterValue,
   hashSkillFiles,
   isTextFile,
-  parseClawdisMetadata,
   parseFrontmatter,
   sanitizePath,
 } from './skills'
-import type { WebhookSkillPayload } from './webhooks'
+import { generateSoulChangelogForPublish } from './soulChangelog'
 
 const MAX_TOTAL_BYTES = 50 * 1024 * 1024
-const MAX_FILES_FOR_EMBEDDING = 40
+
+const MAX_SUMMARY_LENGTH = 160
+
+function deriveSoulSummary(readmeText: string) {
+  const lines = readmeText.split(/\r?\n/)
+  let inFrontmatter = false
+  for (const raw of lines) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    if (!inFrontmatter && trimmed === '---') {
+      inFrontmatter = true
+      continue
+    }
+    if (inFrontmatter) {
+      if (trimmed === '---') {
+        inFrontmatter = false
+      }
+      continue
+    }
+    const cleaned = trimmed.replace(/^#+\s*/, '')
+    if (!cleaned) continue
+    if (cleaned.length > MAX_SUMMARY_LENGTH) {
+      return `${cleaned.slice(0, MAX_SUMMARY_LENGTH - 3).trimEnd()}...`
+    }
+    return cleaned
+  }
+  return undefined
+}
 
 export type PublishResult = {
-  skillId: Id<'skills'>
-  versionId: Id<'skillVersions'>
-  embeddingId: Id<'skillEmbeddings'>
+  soulId: Id<'souls'>
+  versionId: Id<'soulVersions'>
+  embeddingId: Id<'soulEmbeddings'>
 }
 
 export type PublishVersionArgs = {
@@ -31,7 +57,6 @@ export type PublishVersionArgs = {
   version: string
   changelog: string
   tags?: string[]
-  forkOf?: { slug: string; version?: string }
   source?: {
     kind: 'github'
     url: string
@@ -50,7 +75,7 @@ export type PublishVersionArgs = {
   }>
 }
 
-export async function publishVersionForUser(
+export async function publishSoulVersionForUser(
   ctx: ActionCtx,
   userId: Id<'users'>,
   args: PublishVersionArgs,
@@ -79,32 +104,27 @@ export async function publishVersionForUser(
 
   const totalBytes = sanitizedFiles.reduce((sum, file) => sum + file.size, 0)
   if (totalBytes > MAX_TOTAL_BYTES) {
-    throw new ConvexError('Skill bundle exceeds 50MB limit')
+    throw new ConvexError('Soul bundle exceeds 50MB limit')
   }
 
-  const readmeFile = sanitizedFiles.find(
-    (file) => file.path?.toLowerCase() === 'skill.md' || file.path?.toLowerCase() === 'skills.md',
-  )
-  if (!readmeFile) throw new ConvexError('SKILL.md is required')
+  const isSoulFile = (path: string) => path.toLowerCase() === 'soul.md'
+  const readmeFile = sanitizedFiles.find((file) => isSoulFile(file.path))
+  if (!readmeFile) throw new ConvexError('SOUL.md is required')
+
+  const nonSoulFiles = sanitizedFiles.filter((file) => !isSoulFile(file.path))
+  if (nonSoulFiles.length > 0) {
+    throw new ConvexError('Only SOUL.md is allowed for soul bundles')
+  }
 
   const readmeText = await fetchText(ctx, readmeFile.storageId)
   const frontmatter = parseFrontmatter(readmeText)
-  const clawdis = parseClawdisMetadata(frontmatter)
+  const summary = getFrontmatterValue(frontmatter, 'description') ?? deriveSoulSummary(readmeText)
   const metadata = mergeSourceIntoMetadata(getFrontmatterMetadata(frontmatter), args.source)
-
-  const otherFiles = [] as Array<{ path: string; content: string }>
-  for (const file of sanitizedFiles) {
-    if (!file.path || file.path.toLowerCase().endsWith('.md')) continue
-    if (!isTextFile(file.path, file.contentType ?? undefined)) continue
-    const content = await fetchText(ctx, file.storageId)
-    otherFiles.push({ path: file.path, content })
-    if (otherFiles.length >= MAX_FILES_FOR_EMBEDDING) break
-  }
 
   const embeddingText = buildEmbeddingText({
     frontmatter,
     readme: readmeText,
-    otherFiles,
+    otherFiles: [],
   })
 
   const fingerprint = await hashSkillFiles(
@@ -117,7 +137,7 @@ export async function publishVersionForUser(
   const changelogPromise =
     changelogSource === 'user'
       ? Promise.resolve(suppliedChangelog)
-      : generateChangelogForPublish(ctx, {
+      : generateSoulChangelogForPublish(ctx, {
           slug,
           version,
           readmeText,
@@ -133,7 +153,7 @@ export async function publishVersionForUser(
     }),
   ])
 
-  const publishResult = (await ctx.runMutation(internal.skills.insertVersion, {
+  const publishResult = (await ctx.runMutation(internal.souls.insertVersion, {
     userId,
     slug,
     displayName,
@@ -142,26 +162,20 @@ export async function publishVersionForUser(
     changelogSource,
     tags: args.tags?.map((tag) => tag.trim()).filter(Boolean),
     fingerprint,
-    forkOf: args.forkOf
-      ? {
-          slug: args.forkOf.slug.trim().toLowerCase(),
-          version: args.forkOf.version?.trim() || undefined,
-        }
-      : undefined,
     files: sanitizedFiles,
     parsed: {
       frontmatter,
       metadata,
-      clawdis,
     },
+    summary,
     embedding,
   })) as PublishResult
 
   const owner = (await ctx.runQuery(api.users.getById, { userId })) as Doc<'users'> | null
-  const ownerHandle = owner?.handle ?? owner?.displayName ?? owner?.name ?? 'unknown'
+  const ownerHandle = owner?.handle ?? owner?.name ?? userId
 
   void ctx.scheduler
-    .runAfter(0, internal.githubBackupsNode.backupSkillForPublishInternal, {
+    .runAfter(0, internal.githubSoulBackupsNode.backupSoulForPublishInternal, {
       slug,
       version,
       displayName,
@@ -170,14 +184,8 @@ export async function publishVersionForUser(
       publishedAt: Date.now(),
     })
     .catch((error) => {
-      console.error('GitHub backup scheduling failed', error)
+      console.error('GitHub soul backup scheduling failed', error)
     })
-
-  void schedulePublishWebhook(ctx, {
-    slug,
-    version,
-    displayName,
-  })
 
   return publishResult
 }
@@ -197,32 +205,6 @@ function mergeSourceIntoMetadata(metadata: unknown, source: PublishVersionArgs['
   if (!metadata) return { source: sourceValue }
   if (typeof metadata !== 'object' || Array.isArray(metadata)) return { source: sourceValue }
   return { ...(metadata as Record<string, unknown>), source: sourceValue }
-}
-
-export const __test = {
-  mergeSourceIntoMetadata,
-}
-
-export async function queueHighlightedWebhook(ctx: MutationCtx, skillId: Id<'skills'>) {
-  const skill = await ctx.db.get(skillId)
-  if (!skill) return
-  const owner = await ctx.db.get(skill.ownerUserId)
-  const latestVersion = skill.latestVersionId ? await ctx.db.get(skill.latestVersionId) : null
-
-  const payload: WebhookSkillPayload = {
-    slug: skill.slug,
-    displayName: skill.displayName,
-    summary: skill.summary ?? undefined,
-    version: latestVersion?.version ?? undefined,
-    ownerHandle: owner?.handle ?? owner?.name ?? undefined,
-    batch: skill.batch ?? undefined,
-    tags: Object.keys(skill.tags ?? {}),
-  }
-
-  await ctx.scheduler.runAfter(0, internal.webhooks.sendDiscordWebhook, {
-    event: 'skill.highlighted',
-    skill: payload,
-  })
 }
 
 export async function fetchText(
@@ -246,27 +228,7 @@ function formatEmbeddingError(error: unknown) {
   return 'Embedding failed. Please try again.'
 }
 
-async function schedulePublishWebhook(
-  ctx: ActionCtx,
-  params: { slug: string; version: string; displayName: string },
-) {
-  const result = (await ctx.runQuery(api.skills.getBySlug, {
-    slug: params.slug,
-  })) as { skill: Doc<'skills'>; owner: Doc<'users'> | null } | null
-  if (!result?.skill) return
-
-  const payload: WebhookSkillPayload = {
-    slug: result.skill.slug,
-    displayName: result.skill.displayName || params.displayName,
-    summary: result.skill.summary ?? undefined,
-    version: params.version,
-    ownerHandle: result.owner?.handle ?? result.owner?.name ?? undefined,
-    batch: result.skill.batch ?? undefined,
-    tags: Object.keys(result.skill.tags ?? {}),
-  }
-
-  await ctx.scheduler.runAfter(0, internal.webhooks.sendDiscordWebhook, {
-    event: 'skill.publish',
-    skill: payload,
-  })
+export const __test = {
+  getSummary: (frontmatter: Record<string, unknown>) =>
+    getFrontmatterValue(frontmatter, 'description'),
 }
