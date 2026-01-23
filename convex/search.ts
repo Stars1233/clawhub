@@ -30,7 +30,13 @@ export const searchSkills: ReturnType<typeof action> = action({
     if (!query) return []
     const queryTokens = tokenize(query)
     if (queryTokens.length === 0) return []
-    const vector = await generateEmbedding(query)
+    let vector: number[]
+    try {
+      vector = await generateEmbedding(query)
+    } catch (error) {
+      console.warn('Search embedding generation failed', error)
+      return []
+    }
     const limit = args.limit ?? 10
     const maxCandidate = Math.min(Math.max(limit * 10, 200), 1000)
     let candidateLimit = Math.max(limit * 3, 50)
@@ -133,7 +139,13 @@ export const searchSouls: ReturnType<typeof action> = action({
     if (!query) return []
     const queryTokens = tokenize(query)
     if (queryTokens.length === 0) return []
-    const vector = await generateEmbedding(query)
+    let vector: number[]
+    try {
+      vector = await generateEmbedding(query)
+    } catch (error) {
+      console.warn('Search embedding generation failed', error)
+      return []
+    }
     const limit = args.limit ?? 10
     const maxCandidate = Math.min(Math.max(limit * 10, 200), 1000)
     let candidateLimit = Math.max(limit * 3, 50)
