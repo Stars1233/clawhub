@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Registry: drop missing skills during search hydration (thanks @aaronn, #28).
+
 ## 0.3.0 - 2026-01-19
 
 ### Added

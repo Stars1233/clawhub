@@ -98,7 +98,9 @@ export const hydrateResults = internalQuery({
     const getOwnerHandle = (ownerUserId: Id<'users'>) => {
       const cached = ownerHandleCache.get(ownerUserId)
       if (cached) return cached
-      const handlePromise = ctx.db.get(ownerUserId).then((owner) => owner?.handle ?? owner?._id ?? null)
+      const handlePromise = ctx.db
+        .get(ownerUserId)
+        .then((owner) => owner?.handle ?? owner?._id ?? null)
       ownerHandleCache.set(ownerUserId, handlePromise)
       return handlePromise
     }
