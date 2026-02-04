@@ -70,9 +70,6 @@ function Management() {
   const staff = isModerator(me)
   const admin = isAdmin(me)
 
-  const users = useQuery(api.users.list, admin ? { limit: 50 } : 'skip') as
-    | Doc<'users'>[]
-    | undefined
   const selectedSlug = search.skill?.trim()
   const selectedSkill = useQuery(
     api.skills.getBySlugForStaff,
@@ -105,6 +102,12 @@ function Management() {
   const [reportSearchDebounced, setReportSearchDebounced] = useState('')
   const [userSearch, setUserSearch] = useState('')
   const [userSearchDebounced, setUserSearchDebounced] = useState('')
+
+  const userQuery = userSearchDebounced.trim()
+  const userResult = useQuery(
+    api.users.list,
+    admin ? { limit: 200, search: userQuery || undefined } : 'skip',
+  ) as { items: Doc<'users'>[]; total: number } | undefined
 
   const selectedSkillId = selectedSkill?.skill?._id ?? null
   const selectedOwnerUserId = selectedSkill?.skill?.ownerUserId ?? null
@@ -170,17 +173,18 @@ function Management() {
       : 'No reports yet.'
   const reportSummary = `Showing ${filteredReportedSkills.length} of ${reportedSkills.length}`
 
-  const userQuery = userSearchDebounced.trim().toLowerCase()
-  const filteredUsers = userQuery
-    ? (users ?? []).filter((user) => {
-        const haystack = [user.handle, user.name, user.role, user._id]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-        return haystack.includes(userQuery)
-      })
-    : (users ?? [])
-  const userSummary = `Showing ${filteredUsers.length} of ${(users ?? []).length}`
+  const filteredUsers = userResult?.items ?? []
+  const userTotal = userResult?.total ?? 0
+  const userSummary = userResult
+    ? `Showing ${filteredUsers.length} of ${userTotal}`
+    : 'Loading users…'
+  const userEmptyLabel = userResult
+    ? filteredUsers.length === 0
+      ? userQuery
+        ? 'No matching users.'
+        : 'No users yet.'
+      : ''
+    : 'Loading users…'
 
   return (
     <main className="section">
@@ -365,7 +369,7 @@ function Management() {
                             value={selectedOwner}
                             onChange={(event) => setSelectedOwner(event.target.value)}
                           >
-                            {(users ?? []).map((user) => (
+                            {filteredUsers.map((user) => (
                               <option key={user._id} value={user._id}>
                                 @{user.handle ?? user.name ?? 'user'}
                               </option>
@@ -628,9 +632,7 @@ function Management() {
           </div>
           <div className="management-list">
             {filteredUsers.length === 0 ? (
-              <div className="stat">
-                {(users ?? []).length === 0 ? 'No users yet.' : 'No matching users.'}
-              </div>
+              <div className="stat">{userEmptyLabel}</div>
             ) : (
               filteredUsers.map((user) => (
                 <div key={user._id} className="management-item">

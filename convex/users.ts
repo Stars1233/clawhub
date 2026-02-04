@@ -98,12 +98,30 @@ export const deleteAccount = mutation({
 })
 
 export const list = query({
-  args: { limit: v.optional(v.number()) },
+  args: { limit: v.optional(v.number()), search: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const { user } = await requireUser(ctx)
     assertAdmin(user)
-    const limit = args.limit ?? 50
-    return ctx.db.query('users').order('desc').take(limit)
+    const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
+    const query = args.search?.trim().toLowerCase()
+    const users = await ctx.db.query('users').order('desc').collect()
+    const filtered = query
+      ? users.filter((entry) => {
+          const haystack = [
+            entry.handle,
+            entry.name,
+            entry.displayName,
+            entry.email,
+            entry.role,
+            String(entry._id),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+          return haystack.includes(query)
+        })
+      : users
+    return { items: filtered.slice(0, limit), total: filtered.length }
   },
 })
 
