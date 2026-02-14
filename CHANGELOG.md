@@ -13,6 +13,7 @@
 ### Fixed
 - Users: sync handle on ensure when GitHub login changes (#293) (thanks @christianhpoe).
 - Upload gate: fetch GitHub account age by immutable account ID (prevents username swaps) (#116) (thanks @mkrokosz).
+- API: return proper status codes for delete/undelete errors (#35) (thanks @sergical).
 - API: for owners, return clearer status/messages for hidden/soft-deleted skills instead of a generic 404.
 - HTTP/CORS: add preflight handler + include CORS headers on API/download errors; CLI: include auth token for owner-visible installs/updates (#146) (thanks @Grenghis-Khan).
 - Skills: keep global sorting across pagination on `/skills` (thanks @CodeBBakGoSu, #98).

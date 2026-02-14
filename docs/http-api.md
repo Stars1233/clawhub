@@ -156,6 +156,14 @@ Publishes a new version.
 
 Soft-delete / restore a skill (moderator/admin only).
 
+Status codes:
+
+- `200`: ok
+- `401`: unauthorized
+- `403`: forbidden
+- `404`: skill/user not found
+- `500`: internal server error
+
 ### `POST /api/v1/users/ban`
 
 Ban a user and hard-delete owned skills (moderator/admin only).
