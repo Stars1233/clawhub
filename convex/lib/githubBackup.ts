@@ -74,6 +74,13 @@ export type GitHubBackupContext = {
   root: string
 }
 
+export type GitHubSkillBackupEntry = {
+  owner: string
+  slug: string
+  rootPath: string
+  metaPath: string
+}
+
 export function isGitHubBackupConfigured() {
   return Boolean(
     process.env.GITHUB_APP_ID &&
@@ -106,6 +113,103 @@ export async function fetchGitHubSkillMeta(
     `${skillRoot}/${META_FILENAME}`,
     context.branch,
   )
+}
+
+export async function listGitHubSkillBackupEntries(
+  context: GitHubBackupContext,
+): Promise<GitHubSkillBackupEntry[]> {
+  const ref = await githubGet<GitRef>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/ref/heads/${context.branch}`,
+  )
+  const baseCommit = await githubGet<GitCommit>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/commits/${ref.object.sha}`,
+  )
+  const tree = await githubGet<GitTree>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/trees/${baseCommit.tree.sha}?recursive=1`,
+  )
+
+  const prefix = context.root ? `${context.root}/` : ''
+  const entries: GitHubSkillBackupEntry[] = []
+  for (const entry of tree.tree ?? []) {
+    if (entry.type !== 'blob' || !entry.path) continue
+    if (!entry.path.startsWith(prefix) || !entry.path.endsWith(`/${META_FILENAME}`)) continue
+    const relative = entry.path.slice(prefix.length)
+    const segments = relative.split('/')
+    if (segments.length !== 3) continue
+    const [owner, slug, file] = segments
+    if (file !== META_FILENAME) continue
+    const rootPath = prefix ? `${prefix}${owner}/${slug}` : `${owner}/${slug}`
+    entries.push({ owner, slug, rootPath, metaPath: entry.path })
+  }
+
+  return entries
+}
+
+export async function deleteGitHubSkillBackup(
+  context: GitHubBackupContext,
+  ownerHandle: string,
+  slug: string,
+) {
+  const skillRoot = buildSkillRoot(context.root, ownerHandle, slug)
+  const ref = await githubGet<GitRef>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/ref/heads/${context.branch}`,
+  )
+  const baseCommitSha = ref.object.sha
+  const baseCommit = await githubGet<GitCommit>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/commits/${baseCommitSha}`,
+  )
+  const baseTreeSha = baseCommit.tree.sha
+  const existingTree = await githubGet<GitTree>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/trees/${baseTreeSha}?recursive=1`,
+  )
+
+  const prefix = `${skillRoot}/`
+  const pathsToDelete = (existingTree.tree ?? [])
+    .filter((entry) => entry.type === 'blob' && entry.path?.startsWith(prefix))
+    .map((entry) => entry.path ?? '')
+    .filter(Boolean)
+
+  if (!pathsToDelete.length) return { deleted: false as const }
+
+  const treeEntries = pathsToDelete.map((path) => ({
+    path,
+    mode: '100644' as const,
+    type: 'blob' as const,
+    sha: null,
+  }))
+
+  const newTree = await githubPost<{ sha: string }>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/trees`,
+    {
+      base_tree: baseTreeSha,
+      tree: treeEntries,
+    },
+  )
+
+  const commit = await githubPost<GitCommit>(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/commits`,
+    {
+      message: `delete: ${skillRoot}`,
+      tree: newTree.sha,
+      parents: [baseCommitSha],
+    },
+  )
+
+  await githubPatch(
+    context.token,
+    `/repos/${context.repoOwner}/${context.repoName}/git/refs/heads/${context.branch}`,
+    { sha: commit.sha },
+  )
+
+  return { deleted: true as const }
 }
 
 export async function backupSkillToGitHub(
@@ -397,7 +501,7 @@ function parseRepo(repo: string) {
   return [owner, name] as const
 }
 
-function normalizeOwner(value: string) {
+export function normalizeOwner(value: string) {
   const normalized = value
     .trim()
     .toLowerCase()

@@ -7,9 +7,12 @@ import type { ActionCtx } from './_generated/server'
 import { internalAction } from './_generated/server'
 import {
   backupSkillToGitHub,
+  deleteGitHubSkillBackup,
   fetchGitHubSkillMeta,
   getGitHubBackupContext,
   isGitHubBackupConfigured,
+  listGitHubSkillBackupEntries,
+  normalizeOwner,
 } from './lib/githubBackup'
 
 const DEFAULT_BATCH_SIZE = 50
@@ -35,6 +38,7 @@ export type GitHubBackupSyncStats = {
   skillsScanned: number
   skillsSkipped: number
   skillsBackedUp: number
+  skillsDeleted: number
   skillsMissingVersion: number
   skillsMissingOwner: number
   errors: number
@@ -87,6 +91,7 @@ export async function syncGitHubBackupsInternalHandler(
     skillsScanned: 0,
     skillsSkipped: 0,
     skillsBackedUp: 0,
+    skillsDeleted: 0,
     skillsMissingVersion: 0,
     skillsMissingOwner: 0,
     errors: 0,
@@ -166,7 +171,67 @@ export async function syncGitHubBackupsInternalHandler(
     if (isDone) break
   }
 
+  await pruneDeletedSkillBackups(ctx, context, dryRun, stats)
+
   return { stats, cursor, isDone }
+}
+
+async function pruneDeletedSkillBackups(
+  ctx: ActionCtx,
+  context: Awaited<ReturnType<typeof getGitHubBackupContext>>,
+  dryRun: boolean,
+  stats: GitHubBackupSyncStats,
+) {
+  let entries: Awaited<ReturnType<typeof listGitHubSkillBackupEntries>>
+  try {
+    entries = await listGitHubSkillBackupEntries(context)
+  } catch (error) {
+    console.error('GitHub backup cleanup list failed', error)
+    stats.errors += 1
+    return
+  }
+
+  for (const entry of entries) {
+    try {
+      const skill = (await ctx.runQuery(internal.skills.getSkillBySlugInternal, {
+        slug: entry.slug,
+      })) as Doc<'skills'> | null
+      if (!skill || skill.softDeletedAt) {
+        await deleteBackupIfNeeded(context, entry, dryRun, stats)
+        continue
+      }
+
+      const owner = (await ctx.runQuery(internal.users.getByIdInternal, {
+        userId: skill.ownerUserId,
+      })) as Doc<'users'> | null
+      if (!owner || owner.deletedAt || owner.deactivatedAt) {
+        await deleteBackupIfNeeded(context, entry, dryRun, stats)
+        continue
+      }
+
+      const ownerHandle = normalizeOwner(owner.handle ?? owner._id)
+      if (ownerHandle !== entry.owner) {
+        await deleteBackupIfNeeded(context, entry, dryRun, stats)
+      }
+    } catch (error) {
+      console.error('GitHub backup cleanup failed', error)
+      stats.errors += 1
+    }
+  }
+}
+
+async function deleteBackupIfNeeded(
+  context: Awaited<ReturnType<typeof getGitHubBackupContext>>,
+  entry: Awaited<ReturnType<typeof listGitHubSkillBackupEntries>>[number],
+  dryRun: boolean,
+  stats: GitHubBackupSyncStats,
+) {
+  const result = dryRun
+    ? { deleted: true as const }
+    : await deleteGitHubSkillBackup(context, entry.owner, entry.slug)
+  if (result.deleted) {
+    stats.skillsDeleted += 1
+  }
 }
 
 export const syncGitHubBackupsInternal = internalAction({

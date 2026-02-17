@@ -39,6 +39,7 @@ export type SyncGitHubBackupsResult = {
     skillsScanned: number
     skillsSkipped: number
     skillsBackedUp: number
+    skillsDeleted: number
     skillsMissingVersion: number
     skillsMissingOwner: number
     errors: number
