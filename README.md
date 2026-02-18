@@ -50,6 +50,13 @@ Common CLI flows:
 
 Docs: `docs/quickstart.md`, `docs/cli.md`.
 
+### Removal permissions
+
+- `clawhub uninstall <slug>` only removes a local install on your machine.
+- Uploaded registry skills use soft-delete/restore (`clawhub delete <slug>` / `clawhub undelete <slug>` or API equivalents).
+- Soft-delete/restore is allowed for the skill owner, moderators, and admins.
+- Hard delete is admin-only (management tools / ban flows).
+
 
 ## Telemetry
 

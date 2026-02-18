@@ -154,7 +154,7 @@ Publishes a new version.
 
 ### `DELETE /api/v1/skills/{slug}` / `POST /api/v1/skills/{slug}/undelete`
 
-Soft-delete / restore a skill (moderator/admin only).
+Soft-delete / restore a skill (owner, moderator, or admin).
 
 Status codes:
 
