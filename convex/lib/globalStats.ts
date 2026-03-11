@@ -53,13 +53,13 @@ export function isGlobalStatsStorageNotReadyError(error: unknown) {
 }
 
 export async function countPublicSkillsForGlobalStats(ctx: GlobalStatsReadCtx) {
-  const skills = await ctx.db
-    .query('skills')
+  const digests = await ctx.db
+    .query('skillSearchDigest')
     .withIndex('by_active_updated', (q) => q.eq('softDeletedAt', undefined))
     .collect()
   let count = 0
-  for (const skill of skills) {
-    if (isPublicSkillDoc(skill)) count += 1
+  for (const digest of digests) {
+    if (isPublicSkillDoc(digest)) count += 1
   }
   return count
 }

@@ -32,7 +32,7 @@ describe('skills.countPublicSkills', () => {
               }),
             }
           }
-          if (table === 'skills') {
+          if (table === 'skillSearchDigest') {
             return makeSkillsQuery([])
           }
           throw new Error(`unexpected table ${table}`)
@@ -55,7 +55,7 @@ describe('skills.countPublicSkills', () => {
               }),
             }
           }
-          if (table === 'skills') {
+          if (table === 'skillSearchDigest') {
             return makeSkillsQuery([
               { softDeletedAt: undefined, moderationStatus: 'active' },
               { softDeletedAt: undefined, moderationStatus: 'hidden' },
@@ -78,7 +78,7 @@ describe('skills.countPublicSkills', () => {
           if (table === 'globalStats') {
             throw new Error('unexpected table globalStats')
           }
-          if (table === 'skills') {
+          if (table === 'skillSearchDigest') {
             return makeSkillsQuery([
               { softDeletedAt: undefined, moderationStatus: 'active' },
               { softDeletedAt: undefined, moderationStatus: 'active' },

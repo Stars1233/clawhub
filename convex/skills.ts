@@ -50,7 +50,8 @@ import {
   summarizeReasonCodes,
   verdictFromCodes,
 } from './lib/moderationReasonCodes'
-import { toPublicSkill, toPublicUser } from './lib/public'
+import { type HydratableSkill, toPublicSkill, toPublicUser } from './lib/public'
+import { digestToHydratableSkill } from './lib/skillSearchDigest'
 import {
   AUTO_HIDE_REPORT_THRESHOLD,
   MAX_ACTIVE_REPORTS_PER_USER,
@@ -916,7 +917,7 @@ type BadgeKind = Doc<'skillBadges'>['kind']
 
 async function buildPublicSkillEntries(
   ctx: QueryCtx,
-  skills: Doc<'skills'>[],
+  skills: HydratableSkill[],
   opts?: { includeVersion?: boolean },
 ) {
   const includeVersion = opts?.includeVersion ?? true
@@ -947,8 +948,13 @@ async function buildPublicSkillEntries(
 
   const entries = await Promise.all(
     skills.map(async (skill) => {
-      // Use denormalized summary when available to avoid reading the full ~6KB version doc
-      const hasSummary = includeVersion && skill.latestVersionSummary
+      // Use denormalized summary when available to avoid reading the full ~6KB version doc.
+      // HydratableSkill (from digest rows) won't have latestVersionSummary.
+      const summary =
+        'latestVersionSummary' in skill
+          ? (skill as Doc<'skills'>).latestVersionSummary
+          : undefined
+      const hasSummary = includeVersion && summary
       const [latestVersionDoc, ownerInfo] = await Promise.all([
         includeVersion && !hasSummary && skill.latestVersionId
           ? ctx.db.get(skill.latestVersionId)
@@ -959,7 +965,7 @@ async function buildPublicSkillEntries(
       if (!publicSkill) return null
       const latestVersion = hasSummary
         ? toPublicSkillListVersionFromSummary(
-            skill.latestVersionSummary!,
+            summary!,
             skill.latestVersionId,
           )
         : toPublicSkillListVersion(latestVersionDoc)
@@ -2330,31 +2336,34 @@ export const listPublicPageV2 = query({
 
     const runPaginate = (cursor: string | null) => {
       return ctx.db
-        .query('skills')
+        .query('skillSearchDigest')
         .withIndex(SORT_INDEXES[sort], (q) => q.eq('softDeletedAt', undefined))
         .order(dir)
         .paginate({ cursor, numItems })
     }
 
-    // Use the index to filter out soft-deleted skills at query time.
-    // softDeletedAt === undefined means active (non-deleted) skills only.
+    // Use the lightweight skillSearchDigest table (~800 bytes/row vs ~1.9KB)
+    // to avoid Bytes Read Limit errors on the full skills table.
     // When post-pagination filters are active, skip empty filtered pages so clients
     // don't bounce between CanLoadMore/LoadingMore with no visible new rows.
-    // `isSuspicious` is still backfilled on existing rows, so mixing cursor families
-    // (`by_nonsuspicious_*` vs base sort indexes) can skip rows or duplicate pages.
-    // Stay on the base sort index and filter in JS until the backfill is complete.
     let result = await paginateWithStaleCursorRecovery(
       runPaginate,
       initialCursor,
     )
-    let filteredPage = filterPublicSkillPage(result.page, args)
+    let filteredPage = filterPublicSkillPage(
+      result.page.map(digestToHydratableSkill),
+      args,
+    )
     while (
       (args.nonSuspiciousOnly || args.highlightedOnly) &&
       filteredPage.length === 0 &&
       !result.isDone
     ) {
       result = await runPaginate(result.continueCursor)
-      filteredPage = filterPublicSkillPage(result.page, args)
+      filteredPage = filterPublicSkillPage(
+        result.page.map(digestToHydratableSkill),
+        args,
+      )
     }
 
     const items = await buildPublicSkillEntries(ctx, filteredPage)
@@ -2363,7 +2372,7 @@ export const listPublicPageV2 = query({
 })
 
 function filterPublicSkillPage(
-  page: Array<Doc<'skills'>>,
+  page: HydratableSkill[],
   args: { highlightedOnly?: boolean; nonSuspiciousOnly?: boolean },
 ) {
   if (!args.nonSuspiciousOnly && !args.highlightedOnly) {

@@ -74,7 +74,7 @@ describe('skills.listPublicPageV2', () => {
     const ctx = {
       db: {
         query: vi.fn((table: string) => {
-          if (table !== 'skills') throw new Error(`unexpected table ${table}`)
+          if (table !== 'skillSearchDigest') throw new Error(`unexpected table ${table}`)
           return { withIndex: withIndexMock }
         }),
         get: getMock,
@@ -360,6 +360,7 @@ function makeSkill(
   return {
     _id: id,
     _creationTime: 1,
+    skillId: id,
     slug,
     displayName: slug,
     summary: `${slug} summary`,
