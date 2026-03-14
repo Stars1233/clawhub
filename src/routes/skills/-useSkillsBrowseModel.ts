@@ -1,6 +1,7 @@
-import { useAction, usePaginatedQuery } from 'convex/react'
+import { useAction } from 'convex/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { api } from '../../../convex/_generated/api'
+import { convexHttp } from '../../convex/client'
 import { parseDir, parseSort, toListSort, type SortDir, type SortKey } from './-params'
 import type { SkillListEntry, SkillSearchEntry } from './-types'
 
@@ -22,6 +23,8 @@ type SkillsNavigate = (options: {
   search: (prev: SkillsSearchState) => SkillsSearchState
   replace?: boolean
 }) => void | Promise<void>
+
+type ListStatus = 'loading' | 'idle' | 'loadingMore' | 'done'
 
 export function useSkillsBrowseModel({
   search,
@@ -58,21 +61,49 @@ export function useSkillsBrowseModel({
     ? `${trimmedQuery}::${highlightedOnly ? '1' : '0'}::${nonSuspiciousOnly ? '1' : '0'}`
     : ''
 
-  const {
-    results: paginatedResults,
-    status: paginationStatus,
-    loadMore: loadMorePaginated,
-  } = usePaginatedQuery(
-    api.skills.listPublicPageV2,
-    hasQuery ? 'skip' : { sort: listSort, dir, highlightedOnly, nonSuspiciousOnly },
-    {
-      initialNumItems: pageSize,
+  // One-shot paginated fetches (no reactive subscription)
+  const [listResults, setListResults] = useState<SkillListEntry[]>([])
+  const [listCursor, setListCursor] = useState<string | null>(null)
+  const [listStatus, setListStatus] = useState<ListStatus>('loading')
+  const fetchGeneration = useRef(0)
+
+  const fetchPage = useCallback(
+    async (cursor: string | null, generation: number) => {
+      try {
+        const result = await convexHttp.query(api.skills.listPublicPageV2, {
+          paginationOpts: { cursor, numItems: pageSize },
+          sort: listSort,
+          dir,
+          highlightedOnly,
+          nonSuspiciousOnly,
+        })
+        if (generation !== fetchGeneration.current) return
+        setListResults((prev) => (cursor ? [...prev, ...result.page] : result.page))
+        setListCursor(result.isDone ? null : result.continueCursor)
+        setListStatus(result.isDone ? 'done' : 'idle')
+      } catch (err) {
+        if (generation !== fetchGeneration.current) return
+        console.error('Failed to fetch skills page:', err)
+        setListStatus('done')
+      }
     },
+    [listSort, dir, highlightedOnly, nonSuspiciousOnly],
   )
 
-  const isLoadingList = paginationStatus === 'LoadingFirstPage'
-  const canLoadMoreList = paginationStatus === 'CanLoadMore'
-  const isLoadingMoreList = paginationStatus === 'LoadingMore'
+  // Reset and fetch first page when sort/dir/filters change
+  useEffect(() => {
+    if (hasQuery) return
+    fetchGeneration.current += 1
+    const generation = fetchGeneration.current
+    setListResults([])
+    setListCursor(null)
+    setListStatus('loading')
+    void fetchPage(null, generation)
+  }, [hasQuery, fetchPage])
+
+  const isLoadingList = listStatus === 'loading'
+  const canLoadMoreList = listStatus === 'idle'
+  const isLoadingMoreList = listStatus === 'loadingMore'
 
   useEffect(() => {
     window.clearTimeout(navigateTimer.current)
@@ -133,8 +164,8 @@ export function useSkillsBrowseModel({
         searchScore: entry.score,
       }))
     }
-    return paginatedResults as Array<SkillListEntry>
-  }, [hasQuery, paginatedResults, searchResults])
+    return listResults
+  }, [hasQuery, listResults, searchResults])
 
   const sorted = useMemo(() => {
     if (!hasQuery) {
@@ -191,9 +222,10 @@ export function useSkillsBrowseModel({
     if (hasQuery) {
       setSearchLimit((value) => value + pageSize)
     } else {
-      loadMorePaginated(pageSize)
+      setListStatus('loadingMore')
+      void fetchPage(listCursor, fetchGeneration.current)
     }
-  }, [canLoadMore, hasQuery, isLoadingMore, loadMorePaginated])
+  }, [canLoadMore, fetchPage, hasQuery, isLoadingMore, listCursor])
 
   useEffect(() => {
     if (!isLoadingMore) {
@@ -314,7 +346,6 @@ export function useSkillsBrowseModel({
     onToggleHighlighted,
     onToggleNonSuspicious,
     onToggleView,
-    paginationStatus,
     query,
     sort,
     sorted,

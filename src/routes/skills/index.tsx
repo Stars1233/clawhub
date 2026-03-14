@@ -95,7 +95,7 @@ export function SkillsIndex() {
           isLoadingSkills={model.isLoadingSkills}
           sorted={model.sorted}
           view={model.view}
-          paginationStatus={model.paginationStatus}
+          listDoneLoading={!model.isLoadingSkills && !model.canLoadMore && !model.isLoadingMore}
           hasQuery={model.hasQuery}
           canLoadMore={model.canLoadMore}
           isLoadingMore={model.isLoadingMore}

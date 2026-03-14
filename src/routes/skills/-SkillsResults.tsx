@@ -11,7 +11,7 @@ type SkillsResultsProps = {
   isLoadingSkills: boolean
   sorted: SkillListEntry[]
   view: 'cards' | 'list'
-  paginationStatus: 'LoadingFirstPage' | 'CanLoadMore' | 'LoadingMore' | 'Exhausted'
+  listDoneLoading: boolean
   hasQuery: boolean
   canLoadMore: boolean
   isLoadingMore: boolean
@@ -24,7 +24,7 @@ export function SkillsResults({
   isLoadingSkills,
   sorted,
   view,
-  paginationStatus,
+  listDoneLoading,
   hasQuery,
   canLoadMore,
   isLoadingMore,
@@ -40,7 +40,7 @@ export function SkillsResults({
         </div>
       ) : sorted.length === 0 ? (
         <div className="card">
-          {paginationStatus === 'Exhausted' || hasQuery
+          {listDoneLoading || hasQuery
             ? 'No skills match that filter.'
             : 'Loading skills…'}
         </div>

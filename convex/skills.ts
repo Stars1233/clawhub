@@ -1071,6 +1071,12 @@ async function buildPublicSkillEntries(
   >()
 
   const getOwnerInfo = (skillId: Id<'skills'>, ownerUserId: Id<'users'>) => {
+    // Use pre-resolved owner from digest when available to avoid adding the
+    // users table to the reactive read set (which causes thundering-herd
+    // invalidation on every user-doc write).
+    const preResolved = opts?.preResolvedOwners?.get(skillId)
+    if (preResolved) return Promise.resolve(preResolved)
+
     const cached = ownerInfoCache.get(ownerUserId)
     if (cached) return cached
     const ownerPromise = ctx.db.get(ownerUserId).then((ownerDoc) => {
@@ -1078,13 +1084,11 @@ async function buildPublicSkillEntries(
       if (!publicOwner) {
         return { ownerHandle: null, owner: null }
       }
-      const preResolved = opts?.preResolvedOwners?.get(skillId)
       return {
         ownerHandle:
-          preResolved?.ownerHandle ??
           publicOwner.handle ??
           String(publicOwner._id),
-        owner: preResolved?.owner ?? publicOwner,
+        owner: publicOwner,
       }
     })
     ownerInfoCache.set(ownerUserId, ownerPromise)
