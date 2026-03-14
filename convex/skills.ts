@@ -1125,7 +1125,7 @@ async function buildPublicSkillEntries(
     // users table to the reactive read set (which causes thundering-herd
     // invalidation on every user-doc write).
     const preResolved = opts?.preResolvedOwners?.get(skillId)
-    if (preResolved) return Promise.resolve(preResolved)
+    if (preResolved?.owner) return Promise.resolve(preResolved)
 
     const cached = ownerInfoCache.get(ownerUserId)
     if (cached) return cached
@@ -2641,30 +2641,40 @@ export const listPublicPageV2 = query({
       args.paginationOpts,
     )
 
-    const runPaginate = (cursor: string | null) => {
-      if (args.nonSuspiciousOnly) {
-        // Compound index filters isSuspicious at the DB level — no JS scan.
-        return ctx.db
-          .query('skillSearchDigest')
-          .withIndex(NONSUSPICIOUS_SORT_INDEXES[sort], (q) =>
-            q.eq('softDeletedAt', undefined).eq('isSuspicious', false),
-          )
-          .order(dir)
-          .paginate({ cursor, numItems })
-      }
-      return ctx.db
+    const runPaginateBase = (cursor: string | null) =>
+      ctx.db
         .query('skillSearchDigest')
         .withIndex(SORT_INDEXES[sort], (q) => q.eq('softDeletedAt', undefined))
         .order(dir)
         .paginate({ cursor, numItems })
-    }
+
+    const runPaginateCompound = (cursor: string | null) =>
+      ctx.db
+        .query('skillSearchDigest')
+        .withIndex(NONSUSPICIOUS_SORT_INDEXES[sort], (q) =>
+          q.eq('softDeletedAt', undefined).eq('isSuspicious', false),
+        )
+        .order(dir)
+        .paginate({ cursor, numItems })
 
     // Use the lightweight skillSearchDigest table (~800 bytes/row vs ~1.9KB)
     // to avoid Bytes Read Limit errors on the full skills table.
-    const result = await paginateWithStaleCursorRecovery(
-      runPaginate,
+    let result = await paginateWithStaleCursorRecovery(
+      args.nonSuspiciousOnly ? runPaginateCompound : runPaginateBase,
       initialCursor,
     )
+
+    // Safety: if the compound index returns zero results on the first page,
+    // isSuspicious may not be backfilled yet. Fall back to the base index
+    // with JS filtering so the homepage isn't empty during migration.
+    if (
+      args.nonSuspiciousOnly &&
+      initialCursor === null &&
+      result.page.length === 0 &&
+      !result.isDone
+    ) {
+      result = await paginateWithStaleCursorRecovery(runPaginateBase, null)
+    }
     // highlightedOnly is still filtered in JS (rare enough that empty pages are unlikely)
     const filteredPage = filterPublicSkillPage(
       result.page.map(digestToHydratableSkill),

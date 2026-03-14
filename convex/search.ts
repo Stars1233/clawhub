@@ -254,8 +254,10 @@ export const hydrateResults = internalQuery({
         if (!skill || skill.softDeletedAt) return null
         if (args.nonSuspiciousOnly && isSkillSuspicious(skill)) return null
         // Use pre-resolved owner from digest to avoid reading the users table.
+        // Fall back to live lookup when digest owner is null (deactivated/deleted user).
         const preResolved = digest ? digestToOwnerInfo(digest) : null
-        const resolved = preResolved ?? (await getOwnerInfo(skill.ownerUserId))
+        const resolved =
+          preResolved?.owner ? preResolved : await getOwnerInfo(skill.ownerUserId)
         const publicSkill = toPublicSkill(skill)
         if (!publicSkill || !resolved.owner) return null
         return {
@@ -336,7 +338,8 @@ export const lexicalFallbackSkills = internalQuery({
     const entries = await Promise.all(
       matched.map(async (skill) => {
         const preResolved = preResolvedOwners.get(skill._id)
-        const resolved = preResolved ?? (await getOwnerInfo(skill.ownerUserId))
+        const resolved =
+          preResolved?.owner ? preResolved : await getOwnerInfo(skill.ownerUserId)
         const publicSkill = toPublicSkill(skill)
         if (!publicSkill || !resolved.owner) return null
         return {
