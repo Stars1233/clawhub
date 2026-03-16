@@ -70,7 +70,7 @@ export function useSkillsBrowseModel({
   const fetchPage = useCallback(
     async (cursor: string | null, generation: number) => {
       try {
-        const result = await convexHttp.query(api.skills.listPublicPageV2, {
+        const result = await convexHttp.query(api.skills.listPublicPageV3, {
           paginationOpts: { cursor, numItems: pageSize },
           sort: listSort,
           dir,

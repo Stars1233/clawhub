@@ -40,7 +40,7 @@ function SkillsHome() {
       .then((r) => { if (!cancelled) setHighlighted(r as SkillPageEntry[]) })
       .catch(() => {})
     convexHttp
-      .query(api.skills.listPublicPageV2, {
+      .query(api.skills.listPublicPageV3, {
         paginationOpts: { cursor: null, numItems: 12 },
         sort: 'downloads',
         dir: 'desc',

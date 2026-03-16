@@ -2710,6 +2710,92 @@ export const listPublicPageV2 = query({
   },
 })
 
+/** Identical to listPublicPageV2 — used to distinguish new client traffic from stale tabs. */
+export const listPublicPageV3 = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    sort: v.optional(
+      v.union(
+        v.literal('newest'),
+        v.literal('updated'),
+        v.literal('downloads'),
+        v.literal('installs'),
+        v.literal('stars'),
+        v.literal('name'),
+      ),
+    ),
+    dir: v.optional(v.union(v.literal('asc'), v.literal('desc'))),
+    highlightedOnly: v.optional(v.boolean()),
+    nonSuspiciousOnly: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const sort = args.sort ?? 'newest'
+    const dir = args.dir ?? (sort === 'name' ? 'asc' : 'desc')
+    const { numItems, cursor: initialCursor } = normalizePublicListPagination(
+      args.paginationOpts,
+    )
+
+    const runPaginateBase = (cursor: string | null) =>
+      ctx.db
+        .query('skillSearchDigest')
+        .withIndex(SORT_INDEXES[sort], (q) => q.eq('softDeletedAt', undefined))
+        .order(dir)
+        .paginate({ cursor, numItems })
+
+    const runPaginateCompound = (cursor: string | null) =>
+      ctx.db
+        .query('skillSearchDigest')
+        .withIndex(NONSUSPICIOUS_SORT_INDEXES[sort], (q) =>
+          q.eq('softDeletedAt', undefined).eq('isSuspicious', false),
+        )
+        .order(dir)
+        .paginate({ cursor, numItems })
+
+    let result = await paginateWithStaleCursorRecovery(
+      args.nonSuspiciousOnly ? runPaginateCompound : runPaginateBase,
+      initialCursor,
+    )
+
+    if (
+      args.nonSuspiciousOnly &&
+      initialCursor === null &&
+      result.page.length === 0 &&
+      !result.isDone
+    ) {
+      result = await paginateWithStaleCursorRecovery(runPaginateBase, null)
+    }
+
+    const filteredPage = filterPublicSkillPage(
+      result.page.map(digestToHydratableSkill),
+      args,
+    )
+
+    const filteredMap = new Map(filteredPage.map((s) => [s._id, s]))
+    const items: PublicSkillEntry[] = []
+    for (const digest of result.page) {
+      const hydratable = filteredMap.get(digest.skillId)
+      if (!hydratable) continue
+      const publicSkill = toPublicSkill(hydratable)
+      if (!publicSkill) continue
+      const ownerInfo = digestToOwnerInfo(digest)
+      if (!ownerInfo?.owner) continue
+      const latestVersion = digest.latestVersionSummary
+        ? toPublicSkillListVersionFromSummary(
+            digest.latestVersionSummary,
+            digest.latestVersionId,
+          )
+        : null
+      items.push({
+        skill: publicSkill,
+        latestVersion,
+        ownerHandle: ownerInfo.ownerHandle,
+        owner: ownerInfo.owner,
+      })
+    }
+    return { ...result, page: items }
+  },
+})
+
 function filterPublicSkillPage(
   page: HydratableSkill[],
   args: { highlightedOnly?: boolean; nonSuspiciousOnly?: boolean },
