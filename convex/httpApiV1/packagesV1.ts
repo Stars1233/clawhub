@@ -434,7 +434,7 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
     const entries: Array<{ path: string; bytes: Uint8Array }> = [];
     for (const file of release.files) {
       const blob = await ctx.storage.get(file.storageId);
-      if (!blob) continue;
+      if (!blob) return text(`Missing stored file: ${file.path}`, 500, rate.headers);
       entries.push({
         path: file.path,
         bytes: new Uint8Array(await blob.arrayBuffer()),

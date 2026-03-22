@@ -2505,6 +2505,71 @@ describe("httpApiV1 handlers", () => {
     expect(meta.ownerId).toBe("users:owner");
   });
 
+  it("package download fails when any stored file is missing", async () => {
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+    const runQuery = vi.fn(async (_query: unknown, args: Record<string, unknown>) => {
+      if ("name" in args) {
+        return {
+          package: {
+            _id: "packages:1",
+            name: "demo-plugin",
+            displayName: "Demo Plugin",
+            family: "code-plugin",
+            tags: {},
+            latestReleaseId: "packageReleases:1",
+            channel: "community",
+            isOfficial: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          latestRelease: null,
+          owner: { _id: "users:owner", handle: "owner" },
+        };
+      }
+      if ("releaseId" in args) {
+        return {
+          _id: "packageReleases:1",
+          version: "1.0.0",
+          createdAt: 1,
+          changelog: "init",
+          files: [
+            {
+              path: "package.json",
+              size: 2,
+              sha256: "a".repeat(64),
+              storageId: "storage:1",
+              contentType: "application/json",
+            },
+            {
+              path: "dist/index.js",
+              size: 2,
+              sha256: "b".repeat(64),
+              storageId: "storage:missing",
+              contentType: "text/javascript",
+            },
+          ],
+        };
+      }
+      return null;
+    });
+    const storageGet = vi.fn(async (storageId: string) => {
+      if (storageId === "storage:1") return new Blob(["{}"], { type: "application/json" });
+      return null;
+    });
+
+    const response = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({
+        runQuery,
+        runMutation,
+        storage: { get: storageGet },
+      }),
+      new Request("https://example.com/api/v1/packages/demo-plugin/download"),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Missing stored file: dist/index.js");
+  });
+
   it("blocks file and download access to soft-deleted package releases", async () => {
     const runMutation = vi.fn().mockResolvedValue(okRate());
     const runQuery = vi.fn(async (_query: unknown, args: Record<string, unknown>) => {

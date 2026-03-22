@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   getByName,
+  publishPackage,
   getVersionByName,
   insertReleaseInternal,
   listPublicPage,
@@ -97,6 +98,15 @@ const searchPublicHandler = (
       capabilityTag?: string;
     },
     Array<{ package: { name: string } }>
+  >
+)._handler;
+const publishPackageHandler = (
+  publishPackage as unknown as WrappedHandler<
+    {
+      userId: string;
+      payload: unknown;
+    },
+    unknown
   >
 )._handler;
 
@@ -551,6 +561,43 @@ describe("packages public queries", () => {
     expect(result.map((entry) => entry.package.name)).toContain("demo-plugin");
   });
 
+  it("caps public list scans below the Convex read limit budget", async () => {
+    const { ctx, paginate } = makeDigestCtx({
+      pages: Array.from({ length: 120 }, (_, index) => ({
+        page: [makeDigest(`noise-${index}`, { executesCode: false })],
+        isDone: false,
+        continueCursor: `cursor:${index + 1}`,
+      })),
+    });
+
+    const result = await listPublicPageHandler(ctx, {
+      executesCode: true,
+      paginationOpts: { cursor: null, numItems: 100 },
+    });
+
+    expect(result.page).toEqual([]);
+    expect(paginate).toHaveBeenCalledTimes(100);
+  });
+
+  it("caps public search scans below the Convex read limit budget", async () => {
+    const { ctx, paginate } = makeDigestCtx({
+      pages: Array.from({ length: 170 }, (_, index) => ({
+        page: [makeDigest(`noise-${index}`, { executesCode: false, updatedAt: 10_000 - index })],
+        isDone: false,
+        continueCursor: `cursor:${index + 1}`,
+      })),
+    });
+
+    const result = await searchPublicHandler(ctx, {
+      query: "demo",
+      executesCode: true,
+      limit: 100,
+    });
+
+    expect(result).toEqual([]);
+    expect(paginate).toHaveBeenCalledTimes(150);
+  });
+
   it("uses the official index for no-family official search filters", async () => {
     const { ctx, indexNames } = makeDigestCtx({
       pages: [
@@ -847,5 +894,21 @@ describe("packages public queries", () => {
     expect(ctx.patch).toHaveBeenCalledWith("packageReleases:old", {
       distTags: ["stable"],
     });
+  });
+
+  it("validates package publish payloads inside the action path", async () => {
+    await expect(
+      publishPackageHandler({} as never, {
+        userId: "users:owner",
+        payload: {
+          name: "demo-plugin",
+          family: "bundle-plugin",
+          version: "1.0.0",
+          changelog: "init",
+          bundle: { hostTargets: ["desktop"] },
+          files: "invalid",
+        },
+      }),
+    ).rejects.toThrow(/Package publish payload/i);
   });
 });

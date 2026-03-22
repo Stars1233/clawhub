@@ -1,6 +1,12 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import type { PackageChannel, PackageFamily, PackagePublishRequest } from "clawhub-schema";
+import {
+  PackagePublishRequestSchema,
+  parseArk,
+  type PackageChannel,
+  type PackageFamily,
+  type PackagePublishRequest,
+} from "clawhub-schema";
 import { api, internal } from "./_generated/api";
 import { action, internalMutation, internalQuery, query } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,6 +28,7 @@ import { toPublicUser } from "./lib/public";
 import { hashSkillFiles } from "./lib/skills";
 
 const MAX_PACKAGE_BYTES = 50 * 1024 * 1024;
+const MAX_PACKAGE_SCAN_DOCUMENTS = 30_000;
 const MAX_PUBLIC_LIST_SCAN_PAGES = 200;
 const MAX_SEARCH_PAGE_SIZE = 200;
 const MAX_SEARCH_SCAN_PAGES = 200;
@@ -367,14 +374,24 @@ export const listPublicPage = query({
     let pageSize = decodedCursor.pageSize;
     let done = decodedCursor.done;
     let loops = 0;
+    let remainingScanBudget = MAX_PACKAGE_SCAN_DOCUMENTS;
     const family = args.family;
     const channel = args.channel;
     const isOfficial = args.isOfficial;
 
-    while (!done && collected.length < targetCount && loops < MAX_PUBLIC_LIST_SCAN_PAGES) {
+    while (
+      !done &&
+      collected.length < targetCount &&
+      loops < MAX_PUBLIC_LIST_SCAN_PAGES &&
+      remainingScanBudget > 0
+    ) {
       loops += 1;
-      const effectivePageSize =
-        offset > 0 && pageSize ? Math.max(pageSize, offset + 1) : Math.max(targetCount * 3, targetCount);
+      const effectivePageSize = Math.min(
+        remainingScanBudget,
+        offset > 0 && pageSize ? Math.max(pageSize, offset + 1) : Math.max(targetCount * 3, targetCount),
+      );
+      if (effectivePageSize <= 0) break;
+      remainingScanBudget -= effectivePageSize;
       const pageCursor = cursor;
       const builder = buildPackageDigestQuery(ctx, { family, channel, isOfficial });
       const page = await builder.order("desc").paginate({ cursor: pageCursor, numItems: effectivePageSize });
@@ -449,10 +466,14 @@ export const searchPublic = query({
     let cursor: string | null = null;
     let done = false;
     let loops = 0;
+    let remainingScanBudget = MAX_PACKAGE_SCAN_DOCUMENTS;
 
-    while (!done && loops < MAX_SEARCH_SCAN_PAGES) {
+    while (!done && loops < MAX_SEARCH_SCAN_PAGES && remainingScanBudget > 0) {
       loops += 1;
-      const page = await builder.order("desc").paginate({ cursor, numItems: pageSize });
+      const effectivePageSize = Math.min(pageSize, remainingScanBudget);
+      if (effectivePageSize <= 0) break;
+      remainingScanBudget -= effectivePageSize;
+      const page = await builder.order("desc").paginate({ cursor, numItems: effectivePageSize });
       for (const digest of page.page) {
         if (digest.channel === "private") continue;
         if (args.channel && digest.channel !== args.channel) continue;
@@ -530,7 +551,11 @@ export const publishPackage = action({
     payload: v.any(),
   },
   handler: async (ctx, args) => {
-    const payload = args.payload as PackagePublishRequest;
+    const payload = parseArk(
+      PackagePublishRequestSchema,
+      args.payload,
+      "Package publish payload",
+    ) as PackagePublishRequest;
     await requireGitHubAccountAge(ctx, args.userId);
 
     const family = payload.family;
