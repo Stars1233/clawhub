@@ -808,6 +808,8 @@ const packageSearchDigest = defineTable({
     "executesCode",
     "updatedAt",
   ])
+  .index("by_active_normalized_name", ["softDeletedAt", "normalizedName", "updatedAt"])
+  .index("by_active_runtime_id", ["softDeletedAt", "runtimeId", "updatedAt"])
   .index("by_active_name", ["softDeletedAt", "displayName"]);
 
 const packageCapabilitySearchDigest = defineTable({

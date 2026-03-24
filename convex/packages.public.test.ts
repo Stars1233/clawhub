@@ -313,6 +313,8 @@ function makeDigestCtx(options: {
     isDone: boolean;
     continueCursor: string;
   }>;
+  exactPackages?: Array<Record<string, unknown>>;
+  exactDigests?: Array<Record<string, unknown>>;
   publisherMemberships?: Record<string, "owner" | "admin" | "publisher">;
 }) {
   const pageByTable = new Map<
@@ -381,6 +383,55 @@ function makeDigestCtx(options: {
     ctx: {
       db: {
         query: vi.fn((table: string) => {
+          if (table === "packages") {
+            return {
+              withIndex: vi.fn(
+                (
+                  indexName: string,
+                  builder?: (q: {
+                    eq: (field: string, value: string) => unknown;
+                    gte: (field: string, value: string) => unknown;
+                    lt: (field: string, value: string) => unknown;
+                  }) => unknown,
+                ) => {
+                  let matchedValue = "";
+                  let lowerBound = "";
+                  let upperBound = "";
+                  const queryBuilder = {
+                    eq: (_field: string, value: string) => {
+                      matchedValue = value;
+                      return queryBuilder;
+                    },
+                    gte: (_field: string, value: string) => {
+                      lowerBound = value;
+                      return queryBuilder;
+                    },
+                    lt: (_field: string, value: string) => {
+                      upperBound = value;
+                      return queryBuilder;
+                    },
+                  };
+                  builder?.(queryBuilder);
+                  if (indexName !== "by_name" && indexName !== "by_runtime_id") {
+                    throw new Error(`Unexpected packages index ${indexName}`);
+                  }
+                  const matches = (options.exactPackages ?? []).filter((pkg) =>
+                    indexName === "by_name"
+                      ? matchedValue
+                        ? String(pkg.normalizedName) === matchedValue
+                        : String(pkg.normalizedName) >= lowerBound && String(pkg.normalizedName) < upperBound
+                      : matchedValue
+                        ? String(pkg.runtimeId) === matchedValue
+                        : String(pkg.runtimeId) >= lowerBound && String(pkg.runtimeId) < upperBound,
+                  );
+                  return {
+                    unique: vi.fn().mockResolvedValue(matches[0] ?? null),
+                    take: vi.fn().mockResolvedValue(matches),
+                  };
+                },
+              ),
+            };
+          }
           if (table === "publisherMembers") {
             return {
               withIndex: vi.fn(
@@ -413,7 +464,64 @@ function makeDigestCtx(options: {
               ),
             };
           }
-          if (table !== "packageSearchDigest" && table !== "packageCapabilitySearchDigest") {
+          if (table === "packageSearchDigest") {
+            tableNames.push(table);
+            return {
+              withIndex: (
+                indexName: string,
+                builder?: (q: {
+                  eq: (field: string, value: string | undefined) => unknown;
+                  gte: (field: string, value: string) => unknown;
+                  lt: (field: string, value: string) => unknown;
+                }) => unknown,
+              ) => {
+                if (indexName === "by_package") {
+                  let packageId = "";
+                  const queryBuilder = {
+                    eq: (field: string, value: string | undefined) => {
+                      if (field === "packageId") packageId = value ?? "";
+                      return queryBuilder;
+                    },
+                    gte: () => queryBuilder,
+                    lt: () => queryBuilder,
+                  };
+                  builder?.(queryBuilder);
+                  const match = (options.exactDigests ?? []).find((digest) => digest.packageId === packageId);
+                  return {
+                    unique: vi.fn().mockResolvedValue(match ?? null),
+                  };
+                }
+                if (indexName === "by_active_normalized_name" || indexName === "by_active_runtime_id") {
+                  let lowerBound = "";
+                  let upperBound = "";
+                  const queryBuilder = {
+                    eq: () => queryBuilder,
+                    gte: (_field: string, value: string) => {
+                      lowerBound = value;
+                      return queryBuilder;
+                    },
+                    lt: (_field: string, value: string) => {
+                      upperBound = value;
+                      return queryBuilder;
+                    },
+                  };
+                  builder?.(queryBuilder);
+                  const matches = (options.exactDigests ?? []).filter((digest) =>
+                    indexName === "by_active_normalized_name"
+                      ? String(digest.normalizedName) >= lowerBound &&
+                        String(digest.normalizedName) < upperBound
+                      : String(digest.runtimeId) >= lowerBound &&
+                        String(digest.runtimeId) < upperBound,
+                  );
+                  return {
+                    take: vi.fn().mockResolvedValue(matches),
+                  };
+                }
+                return withIndex(table, indexName);
+              },
+            };
+          }
+          if (table !== "packageCapabilitySearchDigest") {
             throw new Error(`Unexpected table ${table}`);
           }
           tableNames.push(table);
@@ -1069,6 +1177,134 @@ describe("packages public queries", () => {
     });
 
     expect(result.map((entry) => entry.package.name)).toContain("demo-plugin");
+  });
+
+  it("includes exact package-name matches before digest scanning", async () => {
+    const exactPkg = makePackageDoc({
+      _id: "packages:exact",
+      name: "demo-plugin",
+      normalizedName: "demo-plugin",
+    });
+    const exactDigest = makeDigest("demo-plugin", {
+      packageId: "packages:exact",
+    });
+    const { ctx, paginate } = makeDigestCtx({
+      pages: [],
+      exactPackages: [exactPkg],
+      exactDigests: [exactDigest],
+    });
+
+    const result = await searchPublicHandler(ctx, {
+      query: "demo-plugin",
+      limit: 10,
+    });
+
+    expect(result.map((entry) => entry.package.name)).toEqual(["demo-plugin"]);
+    expect(paginate).toHaveBeenCalledTimes(1);
+    expect(ctx.db.query).toHaveBeenCalledWith("packageSearchDigest");
+  });
+
+  it("includes exact runtime-id matches before digest scanning", async () => {
+    const exactPkg = makePackageDoc({
+      _id: "packages:runtime",
+      name: "runtime-demo",
+      normalizedName: "runtime-demo",
+      runtimeId: "demo.plugin",
+    });
+    const exactDigest = makeDigest("runtime-demo", {
+      packageId: "packages:runtime",
+      runtimeId: "demo.plugin",
+    });
+    const { ctx, paginate } = makeDigestCtx({
+      pages: [],
+      exactPackages: [exactPkg],
+      exactDigests: [exactDigest],
+    });
+
+    const result = await searchPublicHandler(ctx, {
+      query: "demo.plugin",
+      limit: 10,
+    });
+
+    expect(result.map((entry) => entry.package.name)).toEqual(["runtime-demo"]);
+    expect(paginate).toHaveBeenCalledTimes(1);
+    expect(ctx.db.query).toHaveBeenCalledWith("packageSearchDigest");
+  });
+
+  it("includes prefix package-name matches before digest scanning", async () => {
+    const prefixPkg = makePackageDoc({
+      _id: "packages:prefix",
+      name: "demo-prefix",
+      normalizedName: "demo-prefix",
+    });
+    const prefixDigest = makeDigest("demo-prefix", {
+      packageId: "packages:prefix",
+    });
+    const { ctx, paginate } = makeDigestCtx({
+      pages: [],
+      exactPackages: [prefixPkg],
+      exactDigests: [prefixDigest],
+    });
+
+    const result = await searchPublicHandler(ctx, {
+      query: "demo",
+      limit: 10,
+    });
+
+    expect(result.map((entry) => entry.package.name)).toEqual(["demo-prefix"]);
+    expect(paginate).toHaveBeenCalledTimes(1);
+    expect(ctx.db.query).toHaveBeenCalledWith("packageSearchDigest");
+  });
+
+  it("keeps spaced queries on the scan path without throwing", async () => {
+    const { ctx } = makeDigestCtx({
+      pages: [
+        {
+          page: [
+            makeDigest("demo-plugin", {
+              displayName: "Demo Plugin",
+            }),
+          ],
+          isDone: true,
+          continueCursor: "",
+        },
+      ],
+    });
+
+    const result = await searchPublicHandler(ctx, {
+      query: "demo plugin",
+      limit: 10,
+    });
+
+    expect(result.map((entry) => entry.package.name)).toEqual(["demo-plugin"]);
+  });
+
+  it("skips publisher membership lookups for public search rows", async () => {
+    const { ctx } = makeDigestCtx({
+      pages: [
+        {
+          page: [
+            makeDigest("demo-plugin", {
+              ownerPublisherId: "publishers:org",
+            }),
+          ],
+          isDone: true,
+          continueCursor: "",
+        },
+      ],
+      publisherMemberships: {
+        "publishers:org": "publisher",
+      },
+    });
+
+    const result = await searchForViewerInternalHandler(ctx, {
+      query: "demo",
+      limit: 10,
+      viewerUserId: "users:member",
+    });
+
+    expect(result.map((entry) => entry.package.name)).toEqual(["demo-plugin"]);
+    expect(ctx.db.query).not.toHaveBeenCalledWith("publisherMembers");
   });
 
   it("caps public list scans below the Convex read limit budget", async () => {
