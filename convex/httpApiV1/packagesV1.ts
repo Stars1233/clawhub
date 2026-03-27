@@ -5,6 +5,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { getOptionalApiTokenUserId } from "../lib/apiTokenAuth";
 import { corsHeaders, mergeHeaders } from "../lib/httpHeaders";
+import { getPackageDownloadSecurityBlock } from "../lib/packageSecurity";
 import { getPublishFileSizeError, MAX_PUBLISH_FILE_BYTES } from "../lib/publishLimits";
 import { applyRateLimit } from "../lib/httpRateLimit";
 import { buildDeterministicPackageZip } from "../lib/skillZip";
@@ -139,24 +140,7 @@ function toVisibleRelease(release: ReleaseLike | null) {
 }
 
 function getReleaseSecurityBlock(release: ReleaseLike) {
-  if (
-    release.vtAnalysis?.status === "malicious" ||
-    release.verification?.scanStatus === "malicious" ||
-    release.staticScan?.status === "malicious"
-  ) {
-    return {
-      status: 403,
-      message: "Blocked: this package release has been flagged as malicious and cannot be downloaded.",
-    };
-  }
-  const vtStatus = release.vtAnalysis?.status?.trim().toLowerCase();
-  if (release.sha256hash && (!vtStatus || vtStatus === "pending")) {
-    return {
-      status: 423,
-      message: "This package release is pending a security scan by VirusTotal. Please try again in a few minutes.",
-    };
-  }
-  return null;
+  return getPackageDownloadSecurityBlock(release);
 }
 
 async function resolvePackageTags(

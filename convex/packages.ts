@@ -34,6 +34,10 @@ import {
 import { getOwnerPublisher, getPublisherMembership } from "./lib/publishers";
 import { toPublicPublisher } from "./lib/public";
 import { runStaticPublishScan } from "./lib/staticPublishScan";
+import {
+  isPackageBlockedFromPublic,
+  resolvePackageReleaseScanStatus,
+} from "./lib/packageSecurity";
 import { tokenize } from "./lib/searchText";
 import { hashSkillFiles } from "./lib/skills";
 
@@ -158,19 +162,6 @@ async function runAfterRef(
   return await ctx.scheduler.runAfter(delayMs, ref as never, args as never);
 }
 
-function toPackageScanStatus(status: string | undefined): Doc<"packages">["scanStatus"] {
-  switch (status) {
-    case "clean":
-    case "suspicious":
-    case "malicious":
-    case "pending":
-    case "not-run":
-      return status;
-    default:
-      return undefined;
-  }
-}
-
 type PublicPackageDoc = {
   _id: Id<"packages">;
   name: string;
@@ -218,10 +209,6 @@ type DashboardPackageListItem = {
     staticScanStatus: "clean" | "suspicious" | "malicious" | null;
   } | null;
 };
-
-function isPackageBlockedFromPublic(scanStatus: Doc<"packages">["scanStatus"]) {
-  return scanStatus === "pending" || scanStatus === "malicious";
-}
 
 function requiresPrivilegedPackageAccess(
   digest: Pick<PackageDigestLike, "channel" | "scanStatus">,
@@ -1814,10 +1801,10 @@ function isReleaseActive(release: Doc<"packageReleases"> | null | undefined) {
 async function syncLatestPackageVerification(
   ctx: MutationCtx,
   release: Doc<"packageReleases">,
-  scanStatus: Doc<"packages">["scanStatus"],
 ) {
   const pkg = await ctx.db.get(release.packageId);
   if (!pkg || pkg.latestReleaseId !== release._id) return;
+  const scanStatus = resolvePackageReleaseScanStatus(release);
 
   const nextVerification = pkg.verification
     ? {
@@ -1865,7 +1852,10 @@ export const updateReleaseScanResultsInternal = internalMutation({
     const patch: Partial<Doc<"packageReleases">> = {};
     if (args.sha256hash !== undefined) patch.sha256hash = args.sha256hash;
     if (args.vtAnalysis !== undefined) {
-      const nextScanStatus = toPackageScanStatus(args.vtAnalysis.status) ?? "pending";
+      const nextScanStatus = resolvePackageReleaseScanStatus({
+        ...activeRelease,
+        vtAnalysis: args.vtAnalysis,
+      });
       patch.vtAnalysis = args.vtAnalysis;
       patch.verification = activeRelease.verification
         ? {
@@ -1878,12 +1868,7 @@ export const updateReleaseScanResultsInternal = internalMutation({
       await ctx.db.patch(args.releaseId, patch);
     }
     if (args.vtAnalysis !== undefined) {
-      const nextScanStatus = toPackageScanStatus(args.vtAnalysis.status) ?? "pending";
-      await syncLatestPackageVerification(
-        ctx,
-        { ...activeRelease, ...patch } as Doc<"packageReleases">,
-        nextScanStatus,
-      );
+      await syncLatestPackageVerification(ctx, { ...activeRelease, ...patch } as Doc<"packageReleases">);
     }
   },
 });
@@ -1948,24 +1933,22 @@ export const updateReleaseStaticScanInternal = internalMutation({
     const patch: Partial<Doc<"packageReleases">> = {
       staticScan: args.staticScan,
     };
-    if (args.staticScan.status === "malicious") {
+    if (activeRelease.verification) {
+      const nextScanStatus = resolvePackageReleaseScanStatus({
+        ...activeRelease,
+        staticScan: args.staticScan,
+      });
       patch.verification = activeRelease.verification
         ? {
             ...activeRelease.verification,
-            scanStatus: "malicious",
+            scanStatus: nextScanStatus,
           }
         : activeRelease.verification;
     }
 
     await ctx.db.patch(args.releaseId, patch);
 
-    if (args.staticScan.status === "malicious") {
-      await syncLatestPackageVerification(
-        ctx,
-        { ...activeRelease, ...patch } as Doc<"packageReleases">,
-        "malicious",
-      );
-    }
+    await syncLatestPackageVerification(ctx, { ...activeRelease, ...patch } as Doc<"packageReleases">);
   },
 });
 

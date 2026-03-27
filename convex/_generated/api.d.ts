@@ -66,6 +66,7 @@ import type * as lib_moderationReasonCodes from "../lib/moderationReasonCodes.js
 import type * as lib_openaiResponse from "../lib/openaiResponse.js";
 import type * as lib_packageRegistry from "../lib/packageRegistry.js";
 import type * as lib_packageSearchDigest from "../lib/packageSearchDigest.js";
+import type * as lib_packageSecurity from "../lib/packageSecurity.js";
 import type * as lib_public from "../lib/public.js";
 import type * as lib_publishLimits from "../lib/publishLimits.js";
 import type * as lib_publishers from "../lib/publishers.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   "lib/openaiResponse": typeof lib_openaiResponse;
   "lib/packageRegistry": typeof lib_packageRegistry;
   "lib/packageSearchDigest": typeof lib_packageSearchDigest;
+  "lib/packageSecurity": typeof lib_packageSecurity;
   "lib/public": typeof lib_public;
   "lib/publishLimits": typeof lib_publishLimits;
   "lib/publishers": typeof lib_publishers;
