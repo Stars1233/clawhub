@@ -105,6 +105,8 @@ export function useUnifiedSearch(query: string, activeType: "all" | "skills" | "
         } catch {
           if (requestId === requestRef.current) {
             setResults([]);
+            setSkillCount(0);
+            setPluginCount(0);
           }
         } finally {
           if (requestId === requestRef.current) {

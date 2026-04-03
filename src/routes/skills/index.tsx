@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { Search } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { BrowseSidebar } from "../../components/BrowseSidebar";
 import { SKILL_CATEGORIES } from "../../lib/categories";
@@ -100,6 +100,15 @@ export function SkillsIndex() {
     [model.onQueryChange],
   );
 
+  const activeCategory = useMemo(() => {
+    if (!model.query) return undefined;
+    return (
+      SKILL_CATEGORIES.find((c) =>
+        c.keywords.some((k) => k === model.query.trim().toLowerCase()),
+      )?.slug ?? undefined
+    );
+  }, [model.query]);
+
   return (
     <main className="browse-page">
       <div className="browse-page-header">
@@ -131,7 +140,7 @@ export function SkillsIndex() {
       <div className={`browse-layout${sidebarOpen ? " sidebar-open" : ""}`}>
         <BrowseSidebar
           categories={SKILL_CATEGORIES}
-          activeCategory={undefined}
+          activeCategory={activeCategory}
           onCategoryChange={handleCategoryChange}
           sortOptions={sortOptionsWithRelevance}
           activeSort={model.sort}

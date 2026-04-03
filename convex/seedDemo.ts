@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation } from "./_generated/server";
+import { internalMutation } from "./functions";
 
 const DEMO_SKILLS = [
   {
@@ -346,15 +346,14 @@ export const seedDemoSkills = internalMutation({
 export const repairGlobalStats = internalMutation({
   args: {},
   handler: async (ctx) => {
-    // Count active digests
+    // Count active digests — push filter server-side
     const digests = await ctx.db
       .query("skillSearchDigest")
       .withIndex("by_active_updated", (q) => q.eq("softDeletedAt", undefined))
+      .filter((q) => q.eq(q.field("moderationStatus"), "active"))
       .collect();
 
-    const count = digests.filter(
-      (d) => !d.softDeletedAt && (!d.moderationStatus || d.moderationStatus === "active"),
-    ).length;
+    const count = digests.length;
 
     // Update globalStats
     const stats = await ctx.db
