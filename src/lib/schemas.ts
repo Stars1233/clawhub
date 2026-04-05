@@ -9,7 +9,7 @@ export const publishSkillSchema = z.object({
   version: z
     .string()
     .min(1, "Version is required")
-    .regex(/^\d+\.\d+\.\d+/, "Version must be valid semver (e.g. 1.0.0)"),
+    .regex(/^\d+\.\d+\.\d+$/, "Version must be valid semver (e.g. 1.0.0)"),
   tags: z.array(z.string()).optional(),
   changelog: z.string().optional(),
   licenseAccepted: z.literal(true, {
