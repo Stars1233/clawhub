@@ -2809,6 +2809,14 @@ export const listPublicPageV4 = query({
       nextCursor = encodeIndexKey(scanCursor);
     }
 
+    // Guard: never signal more pages when the scan budget is exhausted
+    // without finding any items — that would cause the client's
+    // IntersectionObserver auto-load to loop on empty responses.
+    if (items.length === 0) {
+      hasMore = false;
+      nextCursor = null;
+    }
+
     return { page: items, hasMore, nextCursor };
   },
 });
