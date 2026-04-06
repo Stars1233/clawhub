@@ -54,6 +54,7 @@
     "@tanstack/react-router": "1.168.1",
     "@tanstack/react-router-devtools": "1.166.10",
     "@tanstack/react-start": "1.167.2",
+    "@tanstack/react-table": "^8.21.3",
     "@tanstack/router-plugin": "1.167.2",
     "@vercel/analytics": "^2.0.1",
     "clawhub-schema": "workspace:*",
