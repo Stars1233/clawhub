@@ -1,15 +1,22 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Github, Menu, Monitor, Moon, Search, Sun } from "lucide-react";
+import { Ghost, Github, Menu, Monitor, Moon, Plug, Search, Sun, Wrench } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { getUserFacingAuthError } from "../lib/authErrorMessage";
 import { gravatarUrl } from "../lib/gravatar";
+import {
+  filterNavItems,
+  type NavIconName,
+  PRIMARY_NAV_ITEMS,
+  SECONDARY_NAV_ITEMS,
+} from "../lib/nav-items";
 import { isModerator } from "../lib/roles";
 import { getClawHubSiteUrl, getSiteMode, getSiteName } from "../lib/site";
 import { applyTheme, useThemeMode } from "../lib/theme";
 import { startThemeTransition } from "../lib/theme-transition";
 import { setAuthError, useAuthError } from "../lib/useAuthError";
 import { useAuthStatus } from "../lib/useAuthStatus";
+import { Button } from "./ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +25,12 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+
+const NAV_ICONS: Record<NavIconName, React.ComponentType<{ size?: number; className?: string }>> = {
+  wrench: Wrench,
+  plug: Plug,
+  ghost: Ghost,
+};
 
 export default function Header() {
   const { isAuthenticated, isLoading, me } = useAuthStatus();
@@ -34,6 +47,13 @@ export default function Header() {
   const handle = me?.handle ?? me?.displayName ?? "user";
   const initial = (me?.displayName ?? me?.name ?? handle).charAt(0).toUpperCase();
   const isStaff = isModerator(me);
+  const hasResolvedUser = Boolean(me);
+  const navCtx = useMemo(
+    () => ({ isSoulMode, isAuthenticated: hasResolvedUser, isStaff }),
+    [hasResolvedUser, isSoulMode, isStaff],
+  );
+  const primaryItems = useMemo(() => filterNavItems(PRIMARY_NAV_ITEMS, navCtx), [navCtx]);
+  const secondaryItems = useMemo(() => filterNavItems(SECONDARY_NAV_ITEMS, navCtx), [navCtx]);
   const { error: authError, clear: clearAuthError } = useAuthError();
   const signInRedirectTo = getCurrentRelativeUrl();
 
@@ -115,87 +135,20 @@ export default function Header() {
                       <a href={clawHubUrl}>ClawHub</a>
                     </DropdownMenuItem>
                   ) : null}
-                  <DropdownMenuItem asChild>
-                    {isSoulMode ? (
-                      <Link
-                        to="/souls"
-                        search={{
-                          q: undefined,
-                          sort: undefined,
-                          dir: undefined,
-                          view: undefined,
-                          focus: undefined,
-                        }}
-                      >
-                        Souls
-                      </Link>
-                    ) : (
-                      <Link
-                        to="/skills"
-                        search={{
-                          q: undefined,
-                          sort: undefined,
-                          dir: undefined,
-                          highlighted: undefined,
-                          nonSuspicious: undefined,
-                          view: undefined,
-                          focus: undefined,
-                        }}
-                      >
-                        Skills
-                      </Link>
-                    )}
-                  </DropdownMenuItem>
-                  {isSoulMode ? null : (
-                    <DropdownMenuItem asChild>
-                      <Link to="/plugins">Plugins</Link>
-                    </DropdownMenuItem>
-                  )}
-                  {isSoulMode ? null : (
-                    <DropdownMenuItem asChild>
-                      <Link
-                        to="/souls"
-                        search={{
-                          q: undefined,
-                          sort: undefined,
-                          dir: undefined,
-                          view: undefined,
-                          focus: undefined,
-                        }}
-                      >
-                        Souls
+                  {primaryItems.map((item) => (
+                    <DropdownMenuItem key={item.to + item.label} asChild>
+                      <Link to={item.to} search={item.search ?? {}}>
+                        {item.label}
                       </Link>
                     </DropdownMenuItem>
-                  )}
-                  {isSoulMode ? null : (
-                    <DropdownMenuItem asChild>
-                      <Link to="/users" search={{ q: undefined }}>
-                        Users
+                  ))}
+                  {secondaryItems.map((item) => (
+                    <DropdownMenuItem key={item.to + item.label} asChild>
+                      <Link to={item.to} search={item.search ?? {}}>
+                        {item.label}
                       </Link>
                     </DropdownMenuItem>
-                  )}
-                  {isSoulMode ? null : (
-                    <DropdownMenuItem asChild>
-                      <Link to="/about">About</Link>
-                    </DropdownMenuItem>
-                  )}
-                  {me ? (
-                    <DropdownMenuItem asChild>
-                      <Link to="/stars">Stars</Link>
-                    </DropdownMenuItem>
-                  ) : null}
-                  {me ? (
-                    <DropdownMenuItem asChild>
-                      <Link to="/dashboard">Dashboard</Link>
-                    </DropdownMenuItem>
-                  ) : null}
-                  {isStaff ? (
-                    <DropdownMenuItem asChild>
-                      <Link to="/management" search={{ skill: undefined }}>
-                        Management
-                      </Link>
-                    </DropdownMenuItem>
-                  ) : null}
+                  ))}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setTheme("system")}>
                     <Monitor className="h-4 w-4" aria-hidden="true" />
@@ -263,26 +216,21 @@ export default function Header() {
             ) : (
               <>
                 {authError ? (
-                  <div className="error" role="alert" style={{ fontSize: "0.85rem", marginRight: 8 }}>
+                  <div className="error mr-2 text-[0.85rem]" role="alert">
                     {authError}{" "}
                     <button
                       type="button"
                       onClick={clearAuthError}
                       aria-label="Dismiss"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: "inherit",
-                        padding: "0 2px",
-                      }}
+                      className="cursor-pointer border-none bg-transparent px-0.5 py-0 text-inherit"
                     >
                       &times;
                     </button>
                   </div>
                 ) : null}
-                <button
-                  className="btn btn-primary"
+                <Button
+                  variant="primary"
+                  size="sm"
                   type="button"
                   disabled={isLoading}
                   onClick={() => {
@@ -298,7 +246,7 @@ export default function Header() {
                   <Github size={16} aria-hidden="true" />
                   <span className="sign-in-label">Sign in</span>
                   <span className="sign-in-provider">with GitHub</span>
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -327,88 +275,32 @@ export default function Header() {
                 ClawHub
               </a>
             ) : null}
-            {isSoulMode ? (
-              <Link
-                to="/souls"
-                className="navbar-tab"
-                search={{
-                  q: undefined,
-                  sort: undefined,
-                  dir: undefined,
-                  view: undefined,
-                  focus: undefined,
-                }}
-              >
-                Souls
-              </Link>
-            ) : (
-              <Link
-                to="/skills"
-                className="navbar-tab"
-                search={{
-                  q: undefined,
-                  sort: undefined,
-                  dir: undefined,
-                  highlighted: undefined,
-                  nonSuspicious: undefined,
-                  view: undefined,
-                  focus: undefined,
-                }}
-              >
-                Skills
-              </Link>
-            )}
-            {isSoulMode ? null : (
-              <Link to="/plugins" className="navbar-tab">
-                Plugins
-              </Link>
-            )}
-            {isSoulMode ? null : (
-              <Link
-                to="/souls"
-                className="navbar-tab"
-                search={{
-                  q: undefined,
-                  sort: undefined,
-                  dir: undefined,
-                  view: undefined,
-                  focus: undefined,
-                }}
-              >
-                Souls
-              </Link>
-            )}
+            {primaryItems.map((item) => {
+              const Icon = item.icon ? NAV_ICONS[item.icon] : null;
+              return (
+                <Link
+                  key={item.to + item.label}
+                  to={item.to}
+                  className="navbar-tab"
+                  search={item.search ?? {}}
+                >
+                  {Icon ? <Icon size={14} className="opacity-50" aria-hidden="true" /> : null}
+                  {item.label}
+                </Link>
+              );
+            })}
           </div>
           <div className="navbar-tabs-secondary">
-            {isSoulMode ? null : (
-              <Link to="/users" search={{ q: undefined }} className="navbar-tab navbar-tab-secondary">
-                Users
-              </Link>
-            )}
-            {isSoulMode ? null : (
-              <Link to="/about" className="navbar-tab navbar-tab-secondary">
-                About
-              </Link>
-            )}
-            {me ? (
-              <Link to="/stars" className="navbar-tab navbar-tab-secondary">
-                Stars
-              </Link>
-            ) : null}
-            {me ? (
-              <Link to="/dashboard" className="navbar-tab navbar-tab-secondary">
-                Dashboard
-              </Link>
-            ) : null}
-            {isStaff ? (
+            {secondaryItems.map((item) => (
               <Link
-                to="/management"
-                search={{ skill: undefined }}
+                key={item.to + item.label}
+                to={item.to}
+                search={item.search ?? {}}
                 className="navbar-tab navbar-tab-secondary"
               >
-                Manage
+                {item.label === "Management" ? "Manage" : item.label}
               </Link>
-            ) : null}
+            ))}
           </div>
         </nav>
       </div>
