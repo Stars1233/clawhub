@@ -1,4 +1,5 @@
 import { ConvexError } from "convex/values";
+import { normalizeTextContentType } from "clawhub-schema";
 import semver from "semver";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -101,7 +102,11 @@ export async function publishSoulVersionForUser(
   const sanitizedFiles = args.files.map((file) => {
     const path = sanitizePath(file.path);
     if (!path) throw new ConvexError("Invalid file paths");
-    return { ...file, path };
+    return {
+      ...file,
+      path,
+      contentType: normalizeTextContentType(file.path, file.contentType),
+    };
   });
   const publishFiles = sanitizedFiles.filter((file) => !isMacJunkPath(file.path));
   if (publishFiles.some((file) => !isTextFile(file.path, file.contentType ?? undefined))) {

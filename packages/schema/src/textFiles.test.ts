@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 import * as schema from ".";
-import { isTextContentType, TEXT_FILE_EXTENSION_SET } from "./textFiles";
+import {
+  guessTextContentType,
+  isTextContentType,
+  normalizeTextContentType,
+  TEXT_FILE_EXTENSION_SET,
+} from "./textFiles";
 
 describe("clawhub-schema textFiles", () => {
   it("exports text-file extension set", () => {
@@ -16,8 +21,25 @@ describe("clawhub-schema textFiles", () => {
     expect(isTextContentType("application/octet-stream")).toBe(false);
   });
 
+  it("guesses canonical content types for text files", () => {
+    expect(guessTextContentType("src/index.ts")).toBe("application/typescript");
+    expect(guessTextContentType("README.md")).toBe("text/markdown");
+    expect(guessTextContentType("image.png")).toBeUndefined();
+  });
+
+  it("normalizes misleading MIME types for text files", () => {
+    expect(normalizeTextContentType("src/index.ts", "video/mp2t")).toBe("application/typescript");
+    expect(normalizeTextContentType("README.md", "text/markdown; charset=utf-8")).toBe(
+      "text/markdown",
+    );
+    expect(normalizeTextContentType("image.png", "image/png")).toBe("image/png");
+  });
+
   it("re-exports helpers from index", () => {
     expect(typeof schema.isTextContentType).toBe("function");
     expect(schema.isTextContentType("application/markdown")).toBe(true);
+    expect(schema.normalizeTextContentType("src/index.ts", "video/mp2t")).toBe(
+      "application/typescript",
+    );
   });
 });

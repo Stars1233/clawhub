@@ -27,7 +27,12 @@ clawhub login --token clh_...
 Notes:
 
 - Browser login opens `https://clawhub.ai/cli/auth` and completes via a loopback callback.
-- Token stored in `~/Library/Application Support/clawhub/config.json` on macOS (override via `CLAWHUB_CONFIG_PATH`, legacy `CLAWDHUB_CONFIG_PATH`).
+- Default config path:
+  - macOS: `~/Library/Application Support/clawhub/config.json`
+  - Linux/XDG: `$XDG_CONFIG_HOME/clawhub/config.json` or `~/.config/clawhub/config.json`
+  - Windows: `%APPDATA%\\clawhub\\config.json`
+- Legacy fallback: if `clawhub/config.json` does not exist yet but `clawdhub/config.json` does, the CLI reuses the legacy path.
+- Override via `CLAWHUB_CONFIG_PATH` (legacy `CLAWDHUB_CONFIG_PATH`).
 
 ## Examples
 

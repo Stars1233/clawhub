@@ -6,6 +6,8 @@ function pick<T extends Record<string, unknown>, K extends keyof T>(obj: T, keys
   return Object.fromEntries(keys.map((k) => [k, obj[k]])) as Pick<T, K>;
 }
 
+type SharedSkillKey = Extract<keyof Doc<"skills">, keyof Doc<"skillSearchDigest">>;
+
 /**
  * Fields shared 1:1 between `skills` and `skillSearchDigest` (same name,
  * same type).  Used by both `extractDigestFields` and `digestToHydratableSkill`
@@ -35,7 +37,7 @@ const SHARED_KEYS = [
   "moderationReason",
   "createdAt",
   "updatedAt",
-] as const satisfies readonly (keyof Doc<"skills"> & keyof Doc<"skillSearchDigest">)[];
+] as const satisfies readonly SharedSkillKey[];
 
 /** Fields stored in the skillSearchDigest table. */
 export type SkillSearchDigestFields = Pick<Doc<"skills">, (typeof SHARED_KEYS)[number]> & {

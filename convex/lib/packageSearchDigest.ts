@@ -5,6 +5,8 @@ function pick<T extends Record<string, unknown>, K extends keyof T>(obj: T, keys
   return Object.fromEntries(keys.map((key) => [key, obj[key]])) as Pick<T, K>;
 }
 
+type SharedPackageKey = Extract<keyof Doc<"packages">, keyof Doc<"packageSearchDigest">>;
+
 const SHARED_KEYS = [
   "name",
   "normalizedName",
@@ -22,7 +24,7 @@ const SHARED_KEYS = [
   "softDeletedAt",
   "createdAt",
   "updatedAt",
-] as const satisfies readonly (keyof Doc<"packages"> & keyof Doc<"packageSearchDigest">)[];
+] as const satisfies readonly SharedPackageKey[];
 
 const CAPABILITY_SHARED_KEYS = [
   "packageId",

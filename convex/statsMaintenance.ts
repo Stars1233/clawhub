@@ -230,8 +230,11 @@ export const reconcileSkillStarCounts = internalMutation({
       .order("asc")
       .paginate({ cursor: args.cursor ?? null, numItems: batchSize });
 
+    let scanned = 0;
     let patched = 0;
     for (const skill of page) {
+      if (skill.softDeletedAt) continue;
+      scanned += 1;
       // Count actual star records for this skill
       const starRecords = await ctx.db
         .query("stars")
@@ -263,7 +266,7 @@ export const reconcileSkillStarCounts = internalMutation({
     }
 
     return {
-      scanned: page.length,
+      scanned,
       patched,
       cursor: isDone ? null : continueCursor,
       isDone,

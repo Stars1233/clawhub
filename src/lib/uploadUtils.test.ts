@@ -56,6 +56,27 @@ describe("uploadUtils", () => {
 
     const id = await uploadFile("https://example.com/upload", new File(["x"], "x.txt"));
     expect(id).toBe("st_123");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { "Content-Type": "text/plain" },
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes misleading upload MIME types for TypeScript files", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ storageId: "st_123" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFile(
+      "https://example.com/upload",
+      new File(["x"], "src/index.ts", { type: "video/mp2t" }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: { "Content-Type": "application/typescript" },
+    });
 
     vi.unstubAllGlobals();
   });

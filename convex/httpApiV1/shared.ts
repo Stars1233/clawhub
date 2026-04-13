@@ -1,4 +1,4 @@
-import { CliPublishRequestSchema, parseArk } from "clawhub-schema";
+import { CliPublishRequestSchema, normalizeTextContentType, parseArk } from "clawhub-schema";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
@@ -25,7 +25,9 @@ export function safeTextFileResponse(params: {
   size: number;
   headers?: HeadersInit;
 }) {
-  const isSvg = isSvgLike(params.contentType, params.path);
+  const contentType =
+    normalizeTextContentType(params.path, params.contentType) ?? params.contentType;
+  const isSvg = isSvgLike(contentType, params.path);
 
   // For any text response that a browser might try to render, lock it down.
   // In particular, this prevents SVG <foreignObject> script execution from reading
@@ -33,8 +35,8 @@ export function safeTextFileResponse(params: {
   const headers = mergeHeaders(
     params.headers,
     {
-      "Content-Type": params.contentType
-        ? `${params.contentType}; charset=utf-8`
+      "Content-Type": contentType
+        ? `${contentType}; charset=utf-8`
         : "text/plain; charset=utf-8",
       "Cache-Control": "private, max-age=60",
       ETag: params.sha256,

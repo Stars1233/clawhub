@@ -4,6 +4,7 @@ import {
   PLATFORM_SKILL_LICENSE_NAME,
   PLATFORM_SKILL_LICENSE_SUMMARY,
 } from "clawhub-schema/licenseConstants";
+import { normalizeTextContentType } from "clawhub-schema/textFiles";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Upload as UploadIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -423,7 +424,7 @@ export function Upload() {
         size: file.size,
         storageId,
         sha256,
-        contentType: file.type || undefined,
+        contentType: normalizeTextContentType(path, file.type) ?? file.type ?? undefined,
       });
     }
 

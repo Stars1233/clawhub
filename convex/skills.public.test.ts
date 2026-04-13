@@ -35,6 +35,12 @@ const getBySlugHandler = (
         image: string | null;
         bio?: string | null;
       } | null;
+      latestVersion?: {
+        files?: Array<{
+          path: string;
+          contentType?: string;
+        }>;
+      } | null;
     } | null
   >
 )._handler;
@@ -170,5 +176,71 @@ describe("skills.getBySlug", () => {
     const result = await getBySlugHandler(ctx, { slug: "demo" } as never);
 
     expect(result).toBeNull();
+  });
+
+  it("normalizes misleading file MIME types in public version metadata", async () => {
+    const ctx = makeCtx({
+      skill: {
+        _id: "skills:1",
+        _creationTime: 1,
+        slug: "demo",
+        displayName: "Demo",
+        summary: "Public demo skill",
+        ownerUserId: "users:1",
+        canonicalSkillId: undefined,
+        forkOf: undefined,
+        latestVersionId: "skillVersions:1",
+        tags: {},
+        stats: {
+          downloads: 10,
+          installsCurrent: 2,
+          installsAllTime: 5,
+          stars: 3,
+          versions: 1,
+          comments: 0,
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        moderationStatus: "active",
+        moderationFlags: undefined,
+        softDeletedAt: undefined,
+      },
+      owner: {
+        _id: "users:1",
+        _creationTime: 1,
+        handle: "demo-owner",
+        name: "Demo Owner",
+        displayName: "Demo Owner",
+        image: null,
+      },
+      latestVersion: {
+        _id: "skillVersions:1",
+        _creationTime: 2,
+        skillId: "skills:1",
+        version: "1.0.0",
+        fingerprint: "abc",
+        changelog: "",
+        changelogSource: "user",
+        files: [
+          {
+            path: "src/index.ts",
+            size: 10,
+            sha256: "deadbeef",
+            contentType: "video/mp2t",
+          },
+        ],
+        createdBy: "users:1",
+        createdAt: 2,
+      },
+    });
+
+    const result = await getBySlugHandler(ctx, { slug: "demo" } as never);
+
+    expect(result?.latestVersion?.files).toEqual([
+      expect.objectContaining({
+        path: "src/index.ts",
+        contentType: "application/typescript",
+      }),
+    ]);
   });
 });

@@ -53,6 +53,26 @@ const RAW_TEXT_CONTENT_TYPES = [
 ];
 export const TEXT_CONTENT_TYPES = RAW_TEXT_CONTENT_TYPES;
 export const TEXT_CONTENT_TYPE_SET = new Set(TEXT_CONTENT_TYPES);
+const CANONICAL_TEXT_CONTENT_TYPES = {
+    md: "text/markdown",
+    mdx: "text/markdown",
+    txt: "text/plain",
+    json: "application/json",
+    json5: "application/json",
+    yaml: "application/yaml",
+    yml: "application/yaml",
+    toml: "application/toml",
+    js: "application/javascript",
+    cjs: "application/javascript",
+    mjs: "application/javascript",
+    jsx: "application/javascript",
+    ts: "application/typescript",
+    mts: "application/typescript",
+    cts: "application/typescript",
+    tsx: "application/typescript",
+    xml: "application/xml",
+    svg: "image/svg+xml",
+};
 export function isTextContentType(contentType) {
     if (!contentType)
         return false;
@@ -62,5 +82,20 @@ export function isTextContentType(contentType) {
     if (normalized.startsWith("text/"))
         return true;
     return TEXT_CONTENT_TYPE_SET.has(normalized);
+}
+export function guessTextContentType(path) {
+    const ext = path.trim().toLowerCase().split(".").at(-1) ?? "";
+    if (!ext || !TEXT_FILE_EXTENSION_SET.has(ext))
+        return undefined;
+    return CANONICAL_TEXT_CONTENT_TYPES[ext] ?? "text/plain";
+}
+export function normalizeTextContentType(path, contentType) {
+    const normalized = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    const guessed = guessTextContentType(path);
+    if (!guessed)
+        return normalized || undefined;
+    if (isTextContentType(normalized))
+        return normalized;
+    return guessed;
 }
 //# sourceMappingURL=textFiles.js.map

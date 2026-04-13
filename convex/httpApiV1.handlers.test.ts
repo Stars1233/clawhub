@@ -2552,6 +2552,51 @@ describe("httpApiV1 handlers", () => {
     });
   });
 
+  it("packages detail returns stats for plugins", async () => {
+    const runQuery = vi.fn(async (_query: unknown, args: Record<string, unknown>) => {
+      if ("name" in args) {
+        return {
+          package: {
+            _id: "packages:demo-plugin",
+            name: "demo-plugin",
+            displayName: "Demo Plugin",
+            family: "code-plugin",
+            tags: {},
+            latestReleaseId: "packageReleases:1",
+            channel: "community",
+            isOfficial: false,
+            summary: "Plugin summary",
+            latestVersion: "1.2.3",
+            stats: { downloads: 7, installs: 3, stars: 2, versions: 4 },
+            createdAt: 1,
+            updatedAt: 2,
+          },
+          latestRelease: null,
+          owner: { _id: "users:owner", handle: "owner", displayName: "Owner" },
+        };
+      }
+      return null;
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request("https://example.com/api/v1/packages/demo-plugin"),
+    );
+
+    if (response.status !== 200) throw new Error(await response.text());
+    await expect(response.json()).resolves.toMatchObject({
+      package: {
+        name: "demo-plugin",
+        latestVersion: "1.2.3",
+        stats: { downloads: 7, installs: 3, stars: 2, versions: 4 },
+      },
+      owner: {
+        handle: "owner",
+      },
+    });
+  });
+
   it("packages file serves SKILL.md for skill README requests", async () => {
     const runQuery = vi.fn(async (_query: unknown, args: Record<string, unknown>) => {
       if ("name" in args) return null;

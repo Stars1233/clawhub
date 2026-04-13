@@ -3,3 +3,5 @@ export declare const TEXT_FILE_EXTENSION_SET: Set<string>;
 export declare const TEXT_CONTENT_TYPES: readonly ["application/json", "application/xml", "application/yaml", "application/x-yaml", "application/toml", "application/javascript", "application/typescript", "application/markdown", "image/svg+xml"];
 export declare const TEXT_CONTENT_TYPE_SET: Set<string>;
 export declare function isTextContentType(contentType: string): boolean;
+export declare function guessTextContentType(path: string): string | undefined;
+export declare function normalizeTextContentType(path: string, contentType?: string | null): string | undefined;

@@ -105,6 +105,25 @@ describe("buildPackageUploadEntries", () => {
     expect(uploaded.map((entry) => entry.path)).toEqual(["package.json", "dist/index.js"]);
   });
 
+  it("normalizes misleading text MIME types in upload entries", async () => {
+    const uploaded = await buildPackageUploadEntries(
+      [
+        {
+          name: "src/index.ts",
+          size: 20,
+          type: "video/mp2t",
+        },
+      ],
+      {
+        generateUploadUrl: async () => "upload-1",
+        hashFile: async () => "sha:1",
+        uploadFile: async () => "storage:1",
+      },
+    );
+
+    expect(uploaded[0]?.contentType).toBe("application/typescript");
+  });
+
   it("keeps nested archive paths when files do not have webkitRelativePath", async () => {
     const uploaded = await buildPackageUploadEntries(
       [

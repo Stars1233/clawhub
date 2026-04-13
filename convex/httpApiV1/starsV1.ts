@@ -22,7 +22,10 @@ export async function starsPostRouterV1Handler(ctx: ActionCtx, request: Request)
       skillId: skill._id,
     });
     return json(result, 200, rate.headers);
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === "Skill not found") {
+      return text("Skill not found", 404, rate.headers);
+    }
     return text("Unauthorized", 401, rate.headers);
   }
 }

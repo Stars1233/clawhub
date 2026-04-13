@@ -1,4 +1,5 @@
 import type {
+  ApiV1PackageResponse,
   PackageCapabilitySummary,
   PackageCompatibility,
   PackageVerificationSummary,
@@ -24,30 +25,7 @@ export type PackageListItem = {
   verificationTier?: string | null;
 };
 
-export type PackageDetailResponse = {
-  package: {
-    _id?: string;
-    name: string;
-    displayName: string;
-    family: "skill" | "code-plugin" | "bundle-plugin";
-    runtimeId?: string | null;
-    channel: "official" | "community" | "private";
-    isOfficial: boolean;
-    summary?: string | null;
-    latestVersion?: string | null;
-    createdAt: number;
-    updatedAt: number;
-    tags: Record<string, string>;
-    compatibility?: PackageCompatibility | null;
-    capabilities?: PackageCapabilitySummary | null;
-    verification?: PackageVerificationSummary | null;
-  } | null;
-  owner: {
-    handle?: string | null;
-    displayName?: string | null;
-    image?: string | null;
-  } | null;
-};
+export type PackageDetailResponse = ApiV1PackageResponse;
 
 export type PackageVersionDetail = {
   package: {

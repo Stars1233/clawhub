@@ -1075,6 +1075,81 @@ describe("users.list", () => {
     expect(result.items[0]?.handle).toBe("alice");
   });
 
+  it("includes an exact older handle match outside the bounded scan", async () => {
+    vi.mocked(requireUser).mockResolvedValue({
+      userId: "users:admin",
+      user: { _id: "users:admin", role: "admin" },
+    } as never);
+    const users = [
+      ...Array.from({ length: 500 }, (_value, index) => ({
+        _id: `users:recent-${index}`,
+        _creationTime: 10_000 - index,
+        handle: `recent-${index}`,
+        role: "user",
+      })),
+      { _id: "users:older", _creationTime: 1, handle: "alice", role: "user" },
+    ];
+    const { ctx, take, collect } = makeListCtx(users);
+    const listHandler = (
+      list as unknown as { _handler: (ctx: unknown, args: unknown) => Promise<unknown> }
+    )._handler;
+
+    const result = (await listHandler(ctx, { limit: 50, search: "alice" })) as {
+      items: Array<Record<string, unknown>>;
+      total: number;
+    };
+
+    expect(take).toHaveBeenCalledWith(500);
+    expect(collect).not.toHaveBeenCalled();
+    expect(result.total).toBe(1);
+    expect(result.items[0]?._id).toBe("users:older");
+  });
+
+  it("includes an exact personal publisher handle match without a full collect", async () => {
+    vi.mocked(requireUser).mockResolvedValue({
+      userId: "users:admin",
+      user: { _id: "users:admin", role: "admin" },
+    } as never);
+    const users = [{ _id: "users:1", _creationTime: 2, handle: "alice", role: "user" }];
+    const { ctx, take, collect } = makeListCtx(users, {
+      publishersByHandle: {
+        lmlukef: {
+          _id: "publishers:lmlukef",
+          kind: "user",
+          handle: "lmlukef",
+          linkedUserId: "users:owner",
+        },
+      },
+      usersById: {
+        "users:owner": {
+          _id: "users:owner",
+          _creationTime: 1,
+          handle: "luke",
+          name: "different-gh-login",
+          displayName: "Luke",
+          role: "user",
+        },
+      },
+    });
+    const listHandler = (
+      list as unknown as { _handler: (ctx: unknown, args: unknown) => Promise<unknown> }
+    )._handler;
+
+    const result = (await listHandler(ctx, { limit: 50, search: "lmLukeF" })) as {
+      items: Array<Record<string, unknown>>;
+      total: number;
+    };
+
+    expect(take).toHaveBeenCalledWith(500);
+    expect(collect).not.toHaveBeenCalled();
+    expect(result.total).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      _id: "users:owner",
+      handle: "luke",
+      displayName: "Luke",
+    });
+  });
+
   it("clamps large limit and search scan size", async () => {
     vi.mocked(requireUser).mockResolvedValue({
       userId: "users:admin",
