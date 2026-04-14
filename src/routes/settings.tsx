@@ -52,7 +52,7 @@ import {
   type ListViewMode,
   usePreferences,
 } from "../lib/preferences";
-import { getThemeFamilyLabel, THEME_FAMILY_OPTIONS, useThemeMode } from "../lib/theme";
+import { getThemeFamilyLabel, useThemeMode } from "../lib/theme";
 
 export const Route = createFileRoute("/settings")({
   component: Settings,
@@ -67,7 +67,6 @@ export function Settings() {
     family: themeFamily,
     importCustomTheme,
     mode: themeMode,
-    setFamily: setThemeFamily,
     setMode: setThemeMode,
     clearCustomTheme,
   } = useThemeMode();

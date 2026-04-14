@@ -12,7 +12,7 @@ import {
 } from "../lib/nav-items";
 import { isModerator } from "../lib/roles";
 import { getClawHubSiteUrl, getSiteMode, getSiteName } from "../lib/site";
-import { applyTheme, THEME_OPTIONS, useThemeMode } from "../lib/theme";
+import { applyTheme, useThemeMode } from "../lib/theme";
 import { startThemeTransition } from "../lib/theme-transition";
 import { setAuthError, useAuthError } from "../lib/useAuthError";
 import { useAuthStatus } from "../lib/useAuthStatus";
@@ -40,17 +40,12 @@ const NAV_ICONS: Record<NavIconName, ComponentType<{ size?: number; className?: 
   ghost: Ghost,
 };
 
-const THEME_FAMILY_ICONS: Record<string, ComponentType<{ size?: number; className?: string }>> = {
-  claw: Ghost,
-  hub: Plug,
-};
-
 const THEME_MODE_SEQUENCE: Array<"system" | "light" | "dark"> = ["system", "light", "dark"];
 
 export default function Header() {
   const { isAuthenticated, isLoading, me } = useAuthStatus();
   const { signIn, signOut } = useAuthActions();
-  const { theme, mode, setMode, setTheme } = useThemeMode();
+  const { theme, mode, setMode } = useThemeMode();
   const toggleRef = useRef<HTMLDivElement | null>(null);
   const siteMode = getSiteMode();
   const siteName = useMemo(() => getSiteName(siteMode), [siteMode]);
@@ -76,8 +71,6 @@ export default function Header() {
   const [navSearchQuery, setNavSearchQuery] = useState("");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const themeLabel = THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "Claw";
-  const ThemeFamilyIcon = THEME_FAMILY_ICONS[theme] ?? Wrench;
   const ThemeModeIcon = getThemeModeIcon(mode);
 
   const setThemeMode = (next: "system" | "light" | "dark") => {
@@ -91,20 +84,6 @@ export default function Header() {
       },
       context: { element: toggleRef.current },
     });
-  };
-
-  const setThemeFamily = (nextTheme: string) => {
-    applyTheme(mode, nextTheme);
-    setTheme(nextTheme);
-  };
-
-  const cycleThemeFamily = () => {
-    const currentIndex = Math.max(
-      0,
-      THEME_OPTIONS.findIndex((option) => option.value === theme),
-    );
-    const nextTheme = THEME_OPTIONS[(currentIndex + 1) % THEME_OPTIONS.length]?.value ?? "claw";
-    setThemeFamily(nextTheme);
   };
 
   const cycleThemeMode = () => {
@@ -168,23 +147,6 @@ export default function Header() {
                         {item.label === "Management" ? "Manage" : item.label}
                       </Link>
                     </SheetClose>
-                  ))}
-                </div>
-                <div className="mobile-nav-section">
-                  <div className="mobile-nav-section-title">Theme family</div>
-                  {THEME_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      className="mobile-nav-link"
-                      type="button"
-                      onClick={() => {
-                        setThemeFamily(option.value);
-                        setMobileMenuOpen(false);
-                      }}
-                    >
-                      <span>{option.label}</span>
-                      {theme === option.value ? <span className="mobile-nav-meta">Selected</span> : null}
-                    </button>
                   ))}
                 </div>
                 <div className="mobile-nav-section">
@@ -279,7 +241,7 @@ export default function Header() {
                   if (!value) return;
                   setThemeMode(value as "system" | "light" | "dark");
                 }}
-                aria-label={`Theme mode, ${themeLabel} preset`}
+                aria-label="Theme mode"
               >
                 <ToggleGroupItem value="system" aria-label="System theme">
                   <Monitor className="h-4 w-4" aria-hidden="true" />
