@@ -71,6 +71,11 @@ type PublicSkillVersionParsed = {
   clawdis?: { os?: string[]; nix?: { plugin?: boolean; systems?: string[] } };
 };
 
+type PublicSkillVersionStaticScan = Pick<
+  NonNullable<Doc<"skillVersions">["staticScan"]>,
+  "status" | "reasonCodes" | "summary" | "engineVersion" | "checkedAt"
+>;
+
 type PublicSkillVersionResponse = {
   _id: Id<"skillVersions">;
   version: string;
@@ -83,6 +88,7 @@ type PublicSkillVersionResponse = {
   sha256hash?: string;
   vtAnalysis?: Doc<"skillVersions">["vtAnalysis"];
   llmAnalysis?: Doc<"skillVersions">["llmAnalysis"];
+  staticScan?: PublicSkillVersionStaticScan;
   capabilityTags?: string[];
 };
 
@@ -194,6 +200,14 @@ type SkillSecuritySnapshot = {
   virustotalUrl: string | null;
   capabilityTags: string[];
   scanners: {
+    static: {
+      status: string;
+      normalizedStatus: NormalizedSecurityStatus;
+      reasonCodes: string[];
+      summary: string | null;
+      engineVersion: string | null;
+      checkedAt: number | null;
+    } | null;
     vt: {
       status: string;
       verdict: string | null;
@@ -277,30 +291,35 @@ function hasLlmDimensionWarnings(
 function buildSkillSecuritySnapshot(
   version: Pick<
     PublicSkillVersionResponse,
-    "sha256hash" | "vtAnalysis" | "llmAnalysis" | "capabilityTags"
+    "sha256hash" | "vtAnalysis" | "llmAnalysis" | "staticScan" | "capabilityTags"
   >,
 ): SkillSecuritySnapshot | null {
   const capabilityTags = version.capabilityTags ?? [];
   const sha256hash = version.sha256hash ?? null;
   const vt = version.vtAnalysis;
   const llm = version.llmAnalysis;
+  const staticScan = version.staticScan;
 
-  if (!sha256hash && !vt && !llm && capabilityTags.length === 0) return null;
+  if (!sha256hash && !vt && !llm && !staticScan && capabilityTags.length === 0) return null;
 
+  const staticStatus = staticScan ? normalizeSecurityStatus(staticScan.status) : null;
   const vtStatus = vt ? normalizeSecurityStatus(vt.verdict ?? vt.status) : null;
   const llmStatus = llm ? normalizeSecurityStatus(llm.verdict ?? llm.status) : null;
 
   const statuses: NormalizedSecurityStatus[] = [];
+  if (staticStatus) statuses.push(staticStatus);
   if (vtStatus) statuses.push(vtStatus);
   if (llmStatus) statuses.push(llmStatus);
   if (statuses.length === 0 && sha256hash) statuses.push("pending");
   const status = mergeSecurityStatuses(statuses);
   const hasScanResult =
-    isDefinitiveSecurityStatus(vtStatus) || isDefinitiveSecurityStatus(llmStatus);
+    isDefinitiveSecurityStatus(staticStatus) ||
+    isDefinitiveSecurityStatus(vtStatus) ||
+    isDefinitiveSecurityStatus(llmStatus);
   const hasWarnings =
     status === "suspicious" || status === "malicious" || hasLlmDimensionWarnings(llm?.dimensions);
 
-  const checkedAtCandidates = [vt?.checkedAt, llm?.checkedAt].filter(
+  const checkedAtCandidates = [staticScan?.checkedAt, vt?.checkedAt, llm?.checkedAt].filter(
     (value): value is number => typeof value === "number",
   );
   const checkedAt = checkedAtCandidates.length > 0 ? Math.max(...checkedAtCandidates) : null;
@@ -315,6 +334,16 @@ function buildSkillSecuritySnapshot(
     virustotalUrl: sha256hash ? `https://www.virustotal.com/gui/file/${sha256hash}` : null,
     capabilityTags,
     scanners: {
+      static: staticScan
+        ? {
+            status: staticScan.status,
+            normalizedStatus: staticStatus ?? "pending",
+            reasonCodes: staticScan.reasonCodes ?? [],
+            summary: staticScan.summary ?? null,
+            engineVersion: staticScan.engineVersion ?? null,
+            checkedAt: staticScan.checkedAt ?? null,
+          }
+        : null,
       vt: vt
         ? {
             status: vt.status,
