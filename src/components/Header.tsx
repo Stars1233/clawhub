@@ -135,6 +135,11 @@ export default function Header() {
                   </SheetDescription>
                 </SheetHeader>
                 <div className="mobile-nav-section">
+                  <SheetClose asChild>
+                    <Link to="/" className="mobile-nav-link">
+                      Home
+                    </Link>
+                  </SheetClose>
                   {isSoulMode ? (
                     <SheetClose asChild>
                       <a href={clawHubUrl} className="mobile-nav-link">
