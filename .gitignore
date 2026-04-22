@@ -10,7 +10,9 @@ dist-ssr
 *.local
 .vercel
 count.txt
-.env
+.env*
+!.env.local.example
+!.env.example
 .nitro
 .tanstack
 .wrangler
@@ -28,3 +30,4 @@ convex/_generated/
 skills-lock.json
 */skills/*
 skills/*
+.codex/*
