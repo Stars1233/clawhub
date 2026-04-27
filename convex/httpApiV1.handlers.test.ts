@@ -4080,6 +4080,34 @@ describe("httpApiV1 handlers", () => {
     expect(setCall?.[1]).not.toHaveProperty("environment");
   });
 
+  it("deletes a package", async () => {
+    vi.mocked(requireApiTokenUser).mockResolvedValue({
+      userId: "users:1",
+      user: { _id: "users:1", handle: "p" },
+    } as never);
+    const runMutation = vi.fn(async (_mutation: unknown, args: Record<string, unknown>) => {
+      if ("key" in args) return okRate();
+      return { ok: true };
+    });
+
+    const response = await __handlers.packagesDeleteRouterV1Handler(
+      makeCtx({ runMutation }),
+      new Request("https://example.com/api/v1/packages/%40openclaw%2Fdemo-plugin", {
+        method: "DELETE",
+        headers: { Authorization: "Bearer clh_test" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(runMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: "users:1",
+        name: "@openclaw/demo-plugin",
+      }),
+    );
+  });
+
   it("deletes trusted publisher config for a package", async () => {
     vi.mocked(requireApiTokenUser).mockResolvedValue({
       userId: "users:1",

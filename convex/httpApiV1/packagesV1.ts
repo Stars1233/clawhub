@@ -28,6 +28,7 @@ import {
   requireApiTokenUserOrResponse,
   requirePackagePublishAuthOrResponse,
   safeTextFileResponse,
+  softDeleteErrorToResponse,
   text,
   toOptionalNumber,
 } from "./shared";
@@ -61,6 +62,7 @@ const internalRefs = internal as unknown as {
     getReleaseByPackageAndVersionInternal: unknown;
     getReleaseByIdInternal: unknown;
     insertAuditLogInternal: unknown;
+    softDeletePackageInternal: unknown;
   };
   packagePublishTokens: {
     createInternal: unknown;
@@ -870,13 +872,26 @@ export async function packagesPostRouterV1Handler(ctx: ActionCtx, request: Reque
 
 export async function packagesDeleteRouterV1Handler(ctx: ActionCtx, request: Request) {
   const segments = getPathSegments(request, "/api/v1/packages/");
-  if (segments[1] !== "trusted-publisher" || segments.length !== 2) {
-    return text("Not found", 404);
-  }
   const rate = await applyRateLimit(ctx, request, "write");
   if (!rate.ok) return rate.response;
   const auth = await requireApiTokenUserOrResponse(ctx, request, rate.headers);
   if (!auth.ok) return auth.response;
+
+  if (segments.length === 1) {
+    try {
+      await runMutationRef(ctx, internalRefs.packages.softDeletePackageInternal, {
+        userId: auth.userId,
+        name: segments[0]!,
+      });
+      return json({ ok: true }, 200, rate.headers);
+    } catch (error) {
+      return softDeleteErrorToResponse("package", error, rate.headers);
+    }
+  }
+
+  if (segments[1] !== "trusted-publisher" || segments.length !== 2) {
+    return text("Not found", 404, rate.headers);
+  }
 
   try {
     await runMutationRef(ctx, internalRefs.packages.deleteTrustedPublisherForUserInternal, {
