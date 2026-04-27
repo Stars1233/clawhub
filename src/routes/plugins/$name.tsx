@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { AlertTriangle, ExternalLink, Copy, Check, Download } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "../../components/EmptyState";
@@ -234,6 +234,11 @@ function isEmptyObject(obj: unknown): boolean {
 function PluginDetailRoute() {
   const { name } = Route.useParams();
   const { detail, version, readme, rateLimited } = Route.useLoaderData() as PluginDetailLoaderData;
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  if (pathname.includes("/security/")) {
+    return <Outlet />;
+  }
 
   if (rateLimited?.scope === "detail") {
     return (

@@ -14,7 +14,14 @@ import {
   mutation,
   query,
 } from "./functions";
-import { assertAdmin, assertModerator, requireUser, requireUserFromAction } from "./lib/access";
+import {
+  assertAdmin,
+  assertModerator,
+  getOptionalActiveAuthUserId,
+  getOptionalActiveAuthUserIdFromAction,
+  requireUser,
+  requireUserFromAction,
+} from "./lib/access";
 import { getSkillBadgeMap, getSkillBadgeMaps, isSkillHighlighted } from "./lib/badges";
 import { scheduleNextBatchIfNeeded } from "./lib/batching";
 import { generateChangelogPreview as buildChangelogPreview } from "./lib/changelog";
@@ -87,13 +94,13 @@ import {
 import { readCanonicalStat } from "./lib/skillStats";
 import { runStaticPublishScan } from "./lib/staticPublishScan";
 import { adjustUserSkillStatsForSkillChange } from "./lib/userSkillStats";
-import { getLatestSkillRescanTarget, insertSkillRescanRequest } from "./model/skills/rescans";
 import {
   assertCanRequestRescan,
   buildRescanState,
   errorMessage,
   finalizeInProgressRescanRequestsForTarget,
 } from "./model/rescans/policy";
+import { getLatestSkillRescanTarget, insertSkillRescanRequest } from "./model/skills/rescans";
 import schema from "./schema";
 
 export { publishVersionForUser } from "./lib/skillPublish";
@@ -1482,7 +1489,7 @@ export const getBySlug = query({
     const skill = resolved.skill;
     if (!skill) return null;
 
-    const userId = await getAuthUserId(ctx);
+    const userId = await getOptionalActiveAuthUserId(ctx);
     const ownerPublisher = await getOwnerPublisher(ctx, {
       ownerPublisherId: skill.ownerPublisherId,
       ownerUserId: skill.ownerUserId,
@@ -2170,7 +2177,7 @@ export const list = query({
     }
     const ownerPublisherId = args.ownerPublisherId;
     if (ownerPublisherId) {
-      const userId = await getAuthUserId(ctx);
+      const userId = await getOptionalActiveAuthUserId(ctx);
       const ownerPublisher = await ctx.db.get(ownerPublisherId);
       const membership =
         userId &&
@@ -2219,7 +2226,7 @@ export const list = query({
     }
     const ownerUserId = args.ownerUserId;
     if (ownerUserId) {
-      const userId = await getAuthUserId(ctx);
+      const userId = await getOptionalActiveAuthUserId(ctx);
       const isOwnDashboard = Boolean(userId && userId === ownerUserId);
       const entries = await ctx.db
         .query("skills")
@@ -2870,7 +2877,9 @@ export const listPublicPageV4 = query({
   },
 });
 
-function buildPublicSkillEntryFromDigest(digest: Doc<"skillSearchDigest">): PublicSkillEntry | null {
+function buildPublicSkillEntryFromDigest(
+  digest: Doc<"skillSearchDigest">,
+): PublicSkillEntry | null {
   const hydratable = digestToHydratableSkill(digest);
   const publicSkill = toPublicSkill(hydratable);
   if (!publicSkill) return null;
@@ -4050,11 +4059,14 @@ async function markSkillRescanRequest(
   status: "completed" | "failed",
   error?: string,
 ) {
-  await ctx.runMutation(internal.rescanRequests.markStatusInternal as never, {
-    requestId,
-    status,
-    error,
-  } as never);
+  await ctx.runMutation(
+    internal.rescanRequests.markStatusInternal as never,
+    {
+      requestId,
+      status,
+      error,
+    } as never,
+  );
 }
 
 export const getRescanState = query({
@@ -5028,7 +5040,7 @@ async function canReadSkillVersionFiles(ctx: ActionCtx, version: Doc<"skillVersi
   })) as Doc<"skills"> | null;
   if (!skill) return false;
 
-  const authUserId = await getAuthUserId(ctx);
+  const authUserId = await getOptionalActiveAuthUserIdFromAction(ctx);
   if (authUserId) {
     if (authUserId === skill.ownerUserId && !skill.softDeletedAt && !version.softDeletedAt) {
       return true;

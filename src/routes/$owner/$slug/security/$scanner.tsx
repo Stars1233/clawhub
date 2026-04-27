@@ -1,4 +1,6 @@
 import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { api } from "../../../../../convex/_generated/api";
 import {
   SecurityScannerPage,
   type ScannerSlug,
@@ -74,9 +76,18 @@ export const Route = createFileRoute("/$owner/$slug/security/$scanner")({
 function SkillSecurityScannerRoute() {
   const { owner, slug, scanner } = Route.useParams();
   const { initialData } = Route.useLoaderData();
-  const result = initialData?.result;
+  const liveResult = useQuery(api.skills.getBySlug, { slug });
+  const result = liveResult === undefined ? initialData?.result : liveResult;
   const skill = result?.skill;
   const latestVersion = result?.latestVersion;
+
+  if (result === undefined) {
+    return (
+      <main className="section">
+        <div className="card">Loading security details...</div>
+      </main>
+    );
+  }
 
   if (!skill || !latestVersion) {
     return (

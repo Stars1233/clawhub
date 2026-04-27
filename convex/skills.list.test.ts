@@ -153,7 +153,17 @@ describe("skills.list", () => {
 
     const ctx = {
       db: {
-        get: vi.fn().mockResolvedValue(null),
+        get: vi.fn(async (id: string) => {
+          if (id === "users:owner") {
+            return {
+              _id: "users:owner",
+              _creationTime: 1,
+              handle: "owner",
+              displayName: "Owner",
+            };
+          }
+          return null;
+        }),
         query: vi.fn((table: string) => {
           if (table === "skills") {
             return {
