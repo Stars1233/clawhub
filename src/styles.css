@@ -6506,6 +6506,17 @@ code {
     width: 100%;
   }
 
+  .skill-install-command-wrap .skill-install-command {
+    padding-right: 18px;
+  }
+
+  .skill-install-command-inline-button {
+    position: static;
+    width: 100%;
+    margin-top: 8px;
+    justify-content: center;
+  }
+
   .skill-install-prompt-trigger,
   .skill-install-copy-button {
     width: 100%;
