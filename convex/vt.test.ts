@@ -92,6 +92,26 @@ describe("vt activation fallback", () => {
 });
 
 describe("vt AV engine fallback verdicts", () => {
+  it("strips unsupported VT stat keys before caching", () => {
+    expect(
+      __test.normalizeVtEngineStats({
+        "confirmed-timeout": 0,
+        failure: 2,
+        harmless: 0,
+        malicious: 0,
+        suspicious: 0,
+        timeout: 0,
+        "type-unsupported": 10,
+        undetected: 64,
+      } as never),
+    ).toEqual({
+      harmless: 0,
+      malicious: 0,
+      suspicious: 0,
+      undetected: 64,
+    });
+  });
+
   it("maps engine verdicts in severity order", () => {
     expect(
       __test.statusFromAvStats({

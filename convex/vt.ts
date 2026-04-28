@@ -166,6 +166,16 @@ type PackageReleaseScanDoc = Pick<
 >;
 type PackageScanDoc = Pick<Doc<"packages">, "family" | "isOfficial">;
 
+function normalizeVtEngineStats(stats?: VTAnalysisStats | null) {
+  if (!stats) return undefined;
+  return {
+    malicious: stats.malicious,
+    suspicious: stats.suspicious,
+    undetected: stats.undetected,
+    harmless: stats.harmless,
+  };
+}
+
 function buildPackageUndetectedFallbackAnalysis(
   release: PackageReleaseScanDoc,
   pkg: PackageScanDoc,
@@ -210,7 +220,7 @@ function buildPackageScanAnalysisFromVtResult(
       analysis: aiResult.analysis,
       source: aiResult.source,
       scanner: "code_insight",
-      engineStats: stats,
+      engineStats: normalizeVtEngineStats(stats),
       checkedAt: Date.now(),
     };
   }
@@ -531,7 +541,7 @@ export const scanWithVirusTotal = internalAction({
               analysis: aiResult.analysis,
               source: aiResult.source,
               scanner: "code_insight",
-              engineStats: stats,
+              engineStats: normalizeVtEngineStats(stats),
               checkedAt: Date.now(),
             },
           });
@@ -920,7 +930,7 @@ export const pollPendingScans = internalAction({
               vtAnalysis: {
                 status,
                 source,
-                engineStats: stats,
+                engineStats: normalizeVtEngineStats(stats),
                 checkedAt: Date.now(),
               },
             });
@@ -974,7 +984,7 @@ export const pollPendingScans = internalAction({
             analysis: aiResult.analysis,
             source: aiResult.source,
             scanner: "code_insight",
-            engineStats: stats,
+            engineStats: normalizeVtEngineStats(stats),
             checkedAt: Date.now(),
           },
         });
@@ -1056,6 +1066,7 @@ async function requestRescan(apiKey: string, sha256hash: string): Promise<boolea
 }
 
 export const __test = {
+  normalizeVtEngineStats,
   statusFromAvStats,
   shouldActivateWhenVtUnavailable,
 };
@@ -1259,7 +1270,7 @@ export const rescanActiveSkills = internalAction({
             vtAnalysis: {
               status,
               source,
-              engineStats: stats,
+              engineStats: normalizeVtEngineStats(stats),
               checkedAt: Date.now(),
             },
           });
@@ -1299,7 +1310,7 @@ export const rescanActiveSkills = internalAction({
             analysis: aiResult.analysis,
             source: aiResult.source,
             scanner: "code_insight",
-            engineStats: stats,
+            engineStats: normalizeVtEngineStats(stats),
             checkedAt: Date.now(),
           },
         });
@@ -1601,7 +1612,7 @@ export const backfillActiveSkillsVTCache = internalAction({
             analysis: aiResult.analysis,
             source: aiResult.source,
             scanner: "code_insight",
-            engineStats: stats,
+            engineStats: normalizeVtEngineStats(stats),
             checkedAt: Date.now(),
           },
         });
