@@ -547,6 +547,16 @@ const skillBadges = defineTable({
   .index("by_skill_kind", ["skillId", "kind"])
   .index("by_kind_at", ["kind", "at"]);
 
+const packageBadges = defineTable({
+  packageId: v.id("packages"),
+  kind: v.union(v.literal("highlighted")),
+  byUserId: v.id("users"),
+  at: v.number(),
+})
+  .index("by_package", ["packageId"])
+  .index("by_package_kind", ["packageId", "kind"])
+  .index("by_kind_at", ["kind", "at"]);
+
 const soulVersionFingerprints = defineTable({
   soulId: v.id("souls"),
   versionId: v.id("soulVersions"),
@@ -1219,12 +1229,7 @@ const rescanRequests = defineTable({
   .index("by_skill_version", ["targetKind", "skillVersionId", "createdAt"])
   .index("by_skill_version_status", ["targetKind", "skillVersionId", "status", "createdAt"])
   .index("by_package_release", ["targetKind", "packageReleaseId", "createdAt"])
-  .index("by_package_release_status", [
-    "targetKind",
-    "packageReleaseId",
-    "status",
-    "createdAt",
-  ])
+  .index("by_package_release_status", ["targetKind", "packageReleaseId", "status", "createdAt"])
   .index("by_requester", ["requestedByUserId", "createdAt"]);
 
 const apiTokens = defineTable({
@@ -1362,6 +1367,7 @@ export default defineSchema({
   packageReleases,
   packageTrustedPublishers,
   packagePublishTokens,
+  packageBadges,
   packageSearchDigest,
   packageCapabilitySearchDigest,
   souls,

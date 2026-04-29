@@ -7,8 +7,8 @@ import {
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { getOptionalApiTokenUserId } from "../lib/apiTokenAuth";
 import { getOptionalActiveAuthUserIdFromAction } from "../lib/access";
+import { getOptionalApiTokenUserId } from "../lib/apiTokenAuth";
 import {
   fetchGitHubRepositoryIdentity,
   verifyGitHubActionsTrustedPublishJwt,
@@ -104,6 +104,7 @@ type PackageListQueryArgs = {
   family?: "skill" | "code-plugin" | "bundle-plugin";
   channel?: "official" | "community" | "private";
   isOfficial?: boolean;
+  highlightedOnly?: boolean;
   executesCode?: boolean;
   capabilityTag?: string;
   viewerUserId?: Id<"users">;
@@ -458,6 +459,7 @@ async function searchPackageCatalogByListing(
     family?: "skill" | "code-plugin" | "bundle-plugin";
     channel?: "official" | "community" | "private";
     isOfficial?: boolean;
+    highlightedOnly?: boolean;
     executesCode?: boolean;
     capabilityTag?: string;
     viewerUserId?: Id<"users">;
@@ -482,6 +484,7 @@ async function searchPackageCatalogByListing(
       family: args.family,
       channel: args.channel,
       isOfficial: args.isOfficial,
+      highlightedOnly: args.highlightedOnly,
       executesCode: args.executesCode,
       capabilityTag: args.capabilityTag,
       viewerUserId: args.viewerUserId,
@@ -650,6 +653,11 @@ async function listPackages(
   const channelRaw = url.searchParams.get("channel")?.trim();
   const capabilityTag = url.searchParams.get("capabilityTag")?.trim() || undefined;
   const isOfficialRaw = url.searchParams.get("isOfficial");
+  const highlightedOnly =
+    url.searchParams.get("featured") === "true" ||
+    url.searchParams.get("featured") === "1" ||
+    url.searchParams.get("highlightedOnly") === "true" ||
+    url.searchParams.get("highlightedOnly") === "1";
   const executesCodeRaw = url.searchParams.get("executesCode");
   const effectiveFamily =
     family ??
@@ -674,6 +682,7 @@ async function listPackages(
     }>(ctx, apiRefs.skills.listPackageCatalogPage, {
       channel,
       isOfficial,
+      highlightedOnly: highlightedOnly || undefined,
       executesCode,
       capabilityTag,
       paginationOpts: { cursor, numItems: limit },
@@ -701,6 +710,7 @@ async function listPackages(
           }>(ctx, internalRefs.packages.listPageForViewerInternal, {
             channel,
             isOfficial,
+            highlightedOnly: highlightedOnly || undefined,
             executesCode,
             capabilityTag,
             viewerUserId: viewerUserId ?? undefined,
@@ -720,6 +730,7 @@ async function listPackages(
           }>(ctx, apiRefs.skills.listPackageCatalogPage, {
             channel,
             isOfficial,
+            highlightedOnly: highlightedOnly || undefined,
             executesCode,
             capabilityTag,
             paginationOpts: { cursor: pageCursor, numItems },
@@ -783,6 +794,7 @@ async function listPackages(
         family: pluginFamily,
         channel,
         isOfficial,
+        highlightedOnly: highlightedOnly || undefined,
         executesCode,
         capabilityTag,
         viewerUserId: viewerUserId ?? undefined,
@@ -850,6 +862,7 @@ async function listPackages(
     family: effectiveFamily,
     channel,
     isOfficial,
+    highlightedOnly: highlightedOnly || undefined,
     executesCode,
     capabilityTag,
     viewerUserId: viewerUserId ?? undefined,
@@ -1279,6 +1292,11 @@ async function searchPackages(
   const familyRaw = url.searchParams.get("family");
   const channelRaw = url.searchParams.get("channel");
   const isOfficialRaw = url.searchParams.get("isOfficial");
+  const highlightedOnly =
+    url.searchParams.get("featured") === "true" ||
+    url.searchParams.get("featured") === "1" ||
+    url.searchParams.get("highlightedOnly") === "true" ||
+    url.searchParams.get("highlightedOnly") === "1";
   const executesCodeRaw = url.searchParams.get("executesCode");
   const capabilityTag = url.searchParams.get("capabilityTag")?.trim() || undefined;
   const family =
@@ -1305,6 +1323,7 @@ async function searchPackages(
         limit,
         channel,
         isOfficial,
+        highlightedOnly: highlightedOnly || undefined,
         executesCode,
         capabilityTag,
       },
@@ -1319,6 +1338,7 @@ async function searchPackages(
             family: pluginFamily,
             channel,
             isOfficial,
+            highlightedOnly: highlightedOnly || undefined,
             executesCode,
             capabilityTag,
             viewerUserId: viewerUserId ?? undefined,
@@ -1343,6 +1363,7 @@ async function searchPackages(
         family,
         channel,
         isOfficial,
+        highlightedOnly: highlightedOnly || undefined,
         executesCode,
         capabilityTag,
         viewerUserId: viewerUserId ?? undefined,
@@ -1355,6 +1376,7 @@ async function searchPackages(
         limit,
         channel,
         isOfficial,
+        highlightedOnly: highlightedOnly || undefined,
         executesCode,
         capabilityTag,
         viewerUserId: viewerUserId ?? undefined,
@@ -1364,6 +1386,7 @@ async function searchPackages(
         limit,
         channel,
         isOfficial,
+        highlightedOnly: highlightedOnly || undefined,
         executesCode,
         capabilityTag,
       }),

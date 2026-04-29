@@ -167,6 +167,8 @@ type PublicPackageListItem = {
   executesCode: boolean;
   verificationTier: PackageVerificationTier | null;
 };
+
+type PackageBadgeKind = Doc<"packageBadges">["kind"];
 type PackageDigestLike = Pick<
   Doc<"packageSearchDigest">,
   | "packageId"
@@ -407,6 +409,36 @@ function digestMatchesSearchFilters(
     return false;
   }
   return digestMatchesFilters(digest, args);
+}
+
+async function upsertPackageBadge(
+  ctx: MutationCtx,
+  packageId: Id<"packages">,
+  kind: PackageBadgeKind,
+  userId: Id<"users">,
+  at: number,
+) {
+  const existing = await ctx.db
+    .query("packageBadges")
+    .withIndex("by_package_kind", (q) => q.eq("packageId", packageId).eq("kind", kind))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { byUserId: userId, at });
+    return;
+  }
+  await ctx.db.insert("packageBadges", { packageId, kind, byUserId: userId, at });
+}
+
+async function removePackageBadge(
+  ctx: MutationCtx,
+  packageId: Id<"packages">,
+  kind: PackageBadgeKind,
+) {
+  const existing = await ctx.db
+    .query("packageBadges")
+    .withIndex("by_package_kind", (q) => q.eq("packageId", packageId).eq("kind", kind))
+    .unique();
+  if (existing) await ctx.db.delete(existing._id);
 }
 
 function toPublicPackageListItem(digest: PackageDigestLike): PublicPackageListItem {
@@ -935,6 +967,62 @@ function buildPackageCapabilityDigestQuery(
     );
 }
 
+async function fetchHighlightedPackageDigests(
+  ctx: DbReaderCtx,
+  args: {
+    family?: PackageFamily;
+    channel?: PackageChannel;
+    isOfficial?: boolean;
+    executesCode?: boolean;
+    capabilityTag?: string;
+    viewerUserId?: Id<"users">;
+  },
+) {
+  const viewerUserId = args.viewerUserId;
+  const membershipCache = new Map<string, Promise<boolean>>();
+  const badges = await ctx.db
+    .query("packageBadges")
+    .withIndex("by_kind_at", (q) => q.eq("kind", "highlighted"))
+    .order("desc")
+    .take(MAX_PUBLIC_LIST_PAGE_SIZE);
+  const digests: PackageDigestLike[] = [];
+  for (const badge of badges) {
+    const digest = await ctx.db
+      .query("packageSearchDigest")
+      .withIndex("by_package", (q) => q.eq("packageId", badge.packageId))
+      .unique();
+    if (!digest || digest.softDeletedAt) continue;
+    if (!(await canViewerReadPackage(ctx, digest, viewerUserId, membershipCache))) continue;
+    if (!digestMatchesSearchFilters(digest, args)) continue;
+    digests.push(digest);
+  }
+  return digests;
+}
+
+async function fetchHighlightedPackagePage(
+  ctx: DbReaderCtx,
+  args: {
+    family?: PackageFamily;
+    channel?: PackageChannel;
+    isOfficial?: boolean;
+    executesCode?: boolean;
+    capabilityTag?: string;
+    viewerUserId?: Id<"users">;
+    numItems: number;
+  },
+) {
+  const digests = await fetchHighlightedPackageDigests(ctx, args);
+  return digests
+    .sort(
+      (a, b) =>
+        Number(b.isOfficial) - Number(a.isOfficial) ||
+        b.updatedAt - a.updatedAt ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, args.numItems)
+    .map(toPublicPackageListItem);
+}
+
 async function getPackageByNormalizedName(ctx: DbReaderCtx, normalizedName: string) {
   return (await ctx.db
     .query("packages")
@@ -1007,6 +1095,32 @@ export const getByName = query({
       package: publicPackage,
       latestRelease: latestRelease && !latestRelease.softDeletedAt ? latestRelease : null,
       owner,
+    };
+  },
+});
+
+export const getByNameForStaff = query({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    const { user } = await requireUser(ctx);
+    assertModerator(user);
+
+    const pkg = await getPackageByNormalizedName(ctx, normalizePackageName(args.name));
+    if (!pkg || pkg.softDeletedAt || pkg.family === "skill") return null;
+
+    const highlighted = await ctx.db
+      .query("packageBadges")
+      .withIndex("by_package_kind", (q) => q.eq("packageId", pkg._id).eq("kind", "highlighted"))
+      .unique();
+
+    return {
+      package: pkg,
+      highlighted: highlighted
+        ? {
+            byUserId: highlighted.byUserId,
+            at: highlighted.at,
+          }
+        : null,
     };
   },
 });
@@ -1158,6 +1272,7 @@ export const listPublicPage = query({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
     paginationOpts: paginationOptsValidator,
@@ -1176,6 +1291,7 @@ export const listPageForViewerInternal = internalQuery({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
     viewerUserId: v.optional(v.id("users")),
@@ -1192,6 +1308,7 @@ async function listPackagePageImpl(
     family?: PackageFamily;
     channel?: PackageChannel;
     isOfficial?: boolean;
+    highlightedOnly?: boolean;
     executesCode?: boolean;
     capabilityTag?: string;
     viewerUserId?: Id<"users">;
@@ -1206,6 +1323,15 @@ async function listPackagePageImpl(
   const canViewPackage = async (digest: PackageDigestLike) =>
     await canViewerReadPackage(ctx, digest, viewerUserId, membershipCache);
   const targetCount = args.paginationOpts.numItems;
+
+  if (args.highlightedOnly) {
+    const page = await fetchHighlightedPackagePage(ctx, {
+      ...args,
+      numItems: targetCount,
+    });
+    return { page, isDone: true, continueCursor: "" };
+  }
+
   const collected: PublicPackageListItem[] = [];
   const decodedCursor = decodePublicPageCursor(args.paginationOpts.cursor);
   if (decodedCursor.done && decodedCursor.offset === 0) {
@@ -1300,6 +1426,7 @@ export const searchPublic = query({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
   },
@@ -1319,6 +1446,7 @@ export const searchForViewerInternal = internalQuery({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
     viewerUserId: v.optional(v.id("users")),
@@ -1336,6 +1464,7 @@ async function searchPackagesImpl(
     family?: PackageFamily;
     channel?: PackageChannel;
     isOfficial?: boolean;
+    highlightedOnly?: boolean;
     executesCode?: boolean;
     capabilityTag?: string;
     viewerUserId?: Id<"users">;
@@ -1349,6 +1478,21 @@ async function searchPackagesImpl(
   const membershipCache = new Map<string, Promise<boolean>>();
   const canViewPackage = async (digest: PackageDigestLike) =>
     await canViewerReadPackage(ctx, digest, viewerUserId, membershipCache);
+  if (args.highlightedOnly) {
+    const digests = await fetchHighlightedPackageDigests(ctx, args);
+    return digests
+      .map((digest) => ({ score: packageSearchScore(digest, queryText), package: digest }))
+      .filter((entry) => entry.score > 0)
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          Number(b.package.isOfficial) - Number(a.package.isOfficial) ||
+          b.package.updatedAt - a.package.updatedAt,
+      )
+      .slice(0, targetCount)
+      .map((entry) => ({ score: entry.score, package: toPublicPackageListItem(entry.package) }));
+  }
+
   const builder = args.capabilityTag
     ? buildPackageCapabilityDigestQuery(ctx, {
         capabilityTag: args.capabilityTag,
@@ -2794,6 +2938,36 @@ export const requestRescan = mutation({
         artifactId: target.release._id,
       })),
     };
+  },
+});
+
+export const setBatch = mutation({
+  args: { packageId: v.id("packages"), batch: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { user } = await requireUser(ctx);
+    assertModerator(user);
+    const pkg = await ctx.db.get(args.packageId);
+    if (!pkg || pkg.softDeletedAt || pkg.family === "skill") {
+      throw new ConvexError("Plugin not found");
+    }
+    const nextBatch = args.batch?.trim() || undefined;
+    const nextHighlighted = nextBatch === "highlighted";
+    const now = Date.now();
+
+    if (nextHighlighted) {
+      await upsertPackageBadge(ctx, pkg._id, "highlighted", user._id, now);
+    } else {
+      await removePackageBadge(ctx, pkg._id, "highlighted");
+    }
+
+    await ctx.db.insert("auditLogs", {
+      actorUserId: user._id,
+      action: "package.badge.highlighted",
+      targetType: "package",
+      targetId: pkg._id,
+      metadata: { highlighted: nextHighlighted },
+      createdAt: now,
+    });
   },
 });
 

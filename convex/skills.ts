@@ -3055,6 +3055,7 @@ function skillCatalogMatchesFilters(
   args: {
     channel?: "official" | "community" | "private";
     isOfficial?: boolean;
+    highlightedOnly?: boolean;
     executesCode?: boolean;
     capabilityTag?: string;
   },
@@ -3065,6 +3066,7 @@ function skillCatalogMatchesFilters(
   const isOfficial = isSkillCatalogOfficial(digest);
   const channel = getSkillCatalogChannel(digest);
   if (typeof args.isOfficial === "boolean" && isOfficial !== args.isOfficial) return false;
+  if (args.highlightedOnly && !isSkillHighlighted(digest)) return false;
   if (args.channel && channel !== args.channel) return false;
   if (args.capabilityTag && !(digest.capabilityTags ?? []).includes(args.capabilityTag))
     return false;
@@ -3120,6 +3122,7 @@ export const listPackageCatalogPage = query({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
     paginationOpts: paginationOptsValidator,
@@ -3211,6 +3214,7 @@ export const searchPackageCatalogPublic = query({
       v.union(v.literal("official"), v.literal("community"), v.literal("private")),
     ),
     isOfficial: v.optional(v.boolean()),
+    highlightedOnly: v.optional(v.boolean()),
     executesCode: v.optional(v.boolean()),
     capabilityTag: v.optional(v.string()),
   },

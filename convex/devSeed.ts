@@ -20,6 +20,19 @@ type SeedSkillSpec = {
   rawSkillMd: string;
 };
 
+type SeedPluginSpec = {
+  name: string;
+  displayName: string;
+  summary: string;
+  version: string;
+  runtimeId: string;
+  sourceRepo: string;
+  isOfficial: boolean;
+  capabilityTags: string[];
+  stats: { downloads: number; installs: number; stars: number; versions: number };
+  readme: string;
+};
+
 type SeedActionArgs = {
   reset?: boolean;
 };
@@ -55,6 +68,134 @@ const SCANNED_PLUGIN_README = `# Local Scanned Runtime Plugin
 This seeded plugin is public and intentionally has completed scan results so local development can
 preview plugin scanner detail pages without owner-only visibility.
 `;
+
+const FEATURED_PLUGIN_SEEDS: SeedPluginSpec[] = [
+  {
+    name: "@apify/apify-openclaw-plugin",
+    displayName: "Apify",
+    summary:
+      "Scrape websites through Apify actors and make structured web data available to agents.",
+    version: "1.0.0",
+    runtimeId: "apify",
+    sourceRepo: "apify/apify-openclaw-plugin",
+    isOfficial: false,
+    capabilityTags: ["web", "scraping", "automation"],
+    stats: { downloads: 1200, installs: 320, stars: 45, versions: 1 },
+    readme: "# Apify\n\nScrape websites through Apify actors from OpenClaw.",
+  },
+  {
+    name: "openclaw-codex-app-server",
+    displayName: "Codex App Server Bridge",
+    summary: "Bind OpenClaw chats to Codex App Server conversations and control threads from chat.",
+    version: "1.0.0",
+    runtimeId: "codex-app-server",
+    sourceRepo: "pwrdrvr/openclaw-codex-app-server",
+    isOfficial: false,
+    capabilityTags: ["codex", "chat", "bridge"],
+    stats: { downloads: 980, installs: 280, stars: 37, versions: 1 },
+    readme: "# Codex App Server Bridge\n\nBridge OpenClaw chat sessions to Codex App Server.",
+  },
+  {
+    name: "@largezhou/ddingtalk",
+    displayName: "DingTalk",
+    summary: "Connect OpenClaw to DingTalk enterprise robots with text, image, and file messages.",
+    version: "1.0.0",
+    runtimeId: "dingtalk",
+    sourceRepo: "largezhou/openclaw-dingtalk",
+    isOfficial: false,
+    capabilityTags: ["channel", "dingtalk", "enterprise"],
+    stats: { downloads: 930, installs: 250, stars: 32, versions: 1 },
+    readme: "# DingTalk\n\nDingTalk enterprise robot plugin for OpenClaw.",
+  },
+  {
+    name: "kudosity-openclaw-sms",
+    displayName: "Kudosity SMS",
+    summary: "Send and receive SMS through Kudosity as an OpenClaw plugin.",
+    version: "1.0.0",
+    runtimeId: "kudosity-sms",
+    sourceRepo: "kudosity/openclaw-sms",
+    isOfficial: false,
+    capabilityTags: ["channel", "sms", "kudosity"],
+    stats: { downloads: 860, installs: 210, stars: 29, versions: 1 },
+    readme: "# Kudosity SMS\n\nKudosity SMS channel plugin for OpenClaw.",
+  },
+  {
+    name: "@martian-engineering/lossless-claw",
+    displayName: "Lossless Claw",
+    summary:
+      "Preserve conversation context with DAG-based summarization and incremental compaction.",
+    version: "1.0.0",
+    runtimeId: "lossless-claw",
+    sourceRepo: "Martian-Engineering/lossless-claw",
+    isOfficial: false,
+    capabilityTags: ["memory", "context", "summarization"],
+    stats: { downloads: 820, installs: 190, stars: 28, versions: 1 },
+    readme: "# Lossless Claw\n\nLossless context management plugin for OpenClaw.",
+  },
+  {
+    name: "@opik/opik-openclaw",
+    displayName: "Opik",
+    summary: "Export OpenClaw traces to Opik for monitoring, costs, token usage, and debugging.",
+    version: "1.0.0",
+    runtimeId: "opik",
+    sourceRepo: "comet-ml/opik-openclaw",
+    isOfficial: true,
+    capabilityTags: ["observability", "tracing", "monitoring"],
+    stats: { downloads: 760, installs: 180, stars: 25, versions: 1 },
+    readme: "# Opik\n\nTrace OpenClaw agents with Opik.",
+  },
+  {
+    name: "@prometheusavatar/openclaw-plugin",
+    displayName: "Prometheus Avatar",
+    summary: "Give OpenClaw agents a Live2D avatar with lip-sync, expressions, and speech.",
+    version: "1.0.0",
+    runtimeId: "prometheus-avatar",
+    sourceRepo: "myths-labs/prometheus-avatar",
+    isOfficial: false,
+    capabilityTags: ["avatar", "tts", "live2d"],
+    stats: { downloads: 690, installs: 150, stars: 22, versions: 1 },
+    readme: "# Prometheus Avatar\n\nLive2D avatar plugin for OpenClaw.",
+  },
+  {
+    name: "@tencent-connect/openclaw-qqbot",
+    displayName: "QQbot",
+    summary:
+      "Connect OpenClaw to QQ private chats, group mentions, channel messages, and rich media.",
+    version: "1.0.0",
+    runtimeId: "qqbot",
+    sourceRepo: "tencent-connect/openclaw-qqbot",
+    isOfficial: true,
+    capabilityTags: ["channel", "qq", "messaging"],
+    stats: { downloads: 640, installs: 140, stars: 20, versions: 1 },
+    readme: "# QQbot\n\nQQ Bot plugin for OpenClaw.",
+  },
+  {
+    name: "@wecom/wecom-openclaw-plugin",
+    displayName: "wecom",
+    summary:
+      "Use WeCom Bot WebSocket connections for direct messages, group chats, and proactive messaging.",
+    version: "1.0.0",
+    runtimeId: "wecom",
+    sourceRepo: "WecomTeam/wecom-openclaw-plugin",
+    isOfficial: true,
+    capabilityTags: ["channel", "wecom", "enterprise"],
+    stats: { downloads: 610, installs: 130, stars: 18, versions: 1 },
+    readme: "# wecom\n\nWeCom channel plugin for OpenClaw.",
+  },
+  {
+    name: "openclaw-plugin-yuanbao",
+    displayName: "Yuanbao",
+    summary:
+      "Connect OpenClaw to Yuanbao with direct messages, group chats, media, and slash commands.",
+    version: "1.0.0",
+    runtimeId: "yuanbao",
+    sourceRepo: "yb-claw/openclaw-plugin-yuanbao",
+    isOfficial: false,
+    capabilityTags: ["channel", "yuanbao", "messaging"],
+    stats: { downloads: 580, installs: 125, stars: 17, versions: 1 },
+    readme: "# Yuanbao\n\nYuanbao channel plugin for OpenClaw.",
+  },
+];
 
 type RoleHelpFixtureUser = {
   handle: string;
@@ -382,12 +523,13 @@ async function seedNixSkillsHandler(
     results.push({ slug: spec.slug, ...result });
   }
 
-  const [flaggedSkillStorageId, flaggedPluginStorageId, scannedPluginStorageId] =
-    await Promise.all([
-    ctx.storage.store(new Blob([FLAGGED_SKILL_MD], { type: "text/markdown" })),
-    ctx.storage.store(new Blob([FLAGGED_PLUGIN_README], { type: "text/markdown" })),
-    ctx.storage.store(new Blob([SCANNED_PLUGIN_README], { type: "text/markdown" })),
-  ]);
+  const [flaggedSkillStorageId, flaggedPluginStorageId, scannedPluginStorageId] = await Promise.all(
+    [
+      ctx.storage.store(new Blob([FLAGGED_SKILL_MD], { type: "text/markdown" })),
+      ctx.storage.store(new Blob([FLAGGED_PLUGIN_README], { type: "text/markdown" })),
+      ctx.storage.store(new Blob([SCANNED_PLUGIN_README], { type: "text/markdown" })),
+    ],
+  );
   const fixtureResult: SeedMutationResult = await ctx.runMutation(
     internal.devSeed.seedRescanUxFixturesMutation,
     {
@@ -401,6 +543,32 @@ async function seedNixSkillsHandler(
     },
   );
   results.push({ slug: FLAGGED_SKILL_SLUG, ...fixtureResult });
+
+  const featuredPluginStorageIds = await Promise.all(
+    FEATURED_PLUGIN_SEEDS.map(async (spec) =>
+      ctx.storage.store(new Blob([spec.readme], { type: "text/markdown" })),
+    ),
+  );
+  const featuredResult: SeedMutationResult = await ctx.runMutation(
+    internal.devSeed.seedFeaturedPluginPackagesMutation,
+    {
+      reset: args.reset,
+      packages: FEATURED_PLUGIN_SEEDS.map((spec, index) => ({
+        name: spec.name,
+        displayName: spec.displayName,
+        summary: spec.summary,
+        version: spec.version,
+        runtimeId: spec.runtimeId,
+        sourceRepo: spec.sourceRepo,
+        isOfficial: spec.isOfficial,
+        capabilityTags: spec.capabilityTags,
+        stats: spec.stats,
+        storageId: featuredPluginStorageIds[index],
+        readmeSize: spec.readme.length,
+      })),
+    },
+  );
+  results.push({ slug: "featured-plugins", ...featuredResult });
 
   return { ok: true, results };
 }
@@ -560,6 +728,59 @@ async function findSeedPluginFixture(ctx: MutationCtx) {
 
 async function findScannedPluginFixture(ctx: MutationCtx) {
   return await findSeedPluginFixtureByName(ctx, SCANNED_PLUGIN_NAME);
+}
+
+async function ensureHighlightedSkillBadge(
+  ctx: MutationCtx,
+  skillId: Id<"skills">,
+  userId: Id<"users">,
+  at: number,
+) {
+  const existing = await ctx.db
+    .query("skillBadges")
+    .withIndex("by_skill_kind", (q) => q.eq("skillId", skillId).eq("kind", "highlighted"))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { byUserId: userId, at });
+  } else {
+    await ctx.db.insert("skillBadges", {
+      skillId,
+      kind: "highlighted",
+      byUserId: userId,
+      at,
+    });
+  }
+  const skill = await ctx.db.get(skillId);
+  if (skill) {
+    await ctx.db.patch(skillId, {
+      badges: {
+        ...(skill.badges as Record<string, unknown> | undefined),
+        highlighted: { byUserId: userId, at },
+      },
+    });
+  }
+}
+
+async function ensureHighlightedPackageBadge(
+  ctx: MutationCtx,
+  packageId: Id<"packages">,
+  userId: Id<"users">,
+  at: number,
+) {
+  const existing = await ctx.db
+    .query("packageBadges")
+    .withIndex("by_package_kind", (q) => q.eq("packageId", packageId).eq("kind", "highlighted"))
+    .unique();
+  if (existing) {
+    await ctx.db.patch(existing._id, { byUserId: userId, at });
+  } else {
+    await ctx.db.insert("packageBadges", {
+      packageId,
+      kind: "highlighted",
+      byUserId: userId,
+      at,
+    });
+  }
 }
 
 function staticMaliciousScan(now: number) {
@@ -1083,6 +1304,166 @@ export const seedRescanUxFixturesMutation = internalMutation({
   handler: seedRescanUxFixturesHandler,
 });
 
+export const seedFeaturedPluginPackagesMutation = internalMutation({
+  args: {
+    reset: v.optional(v.boolean()),
+    packages: v.array(
+      v.object({
+        name: v.string(),
+        displayName: v.string(),
+        summary: v.string(),
+        version: v.string(),
+        runtimeId: v.string(),
+        sourceRepo: v.string(),
+        isOfficial: v.boolean(),
+        capabilityTags: v.array(v.string()),
+        stats: v.object({
+          downloads: v.number(),
+          installs: v.number(),
+          stars: v.number(),
+          versions: v.number(),
+        }),
+        storageId: v.id("_storage"),
+        readmeSize: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const { userId, publisherId } = await ensureLocalSeedOwner(ctx);
+    const seeded: string[] = [];
+    const skipped: string[] = [];
+
+    for (const spec of args.packages) {
+      const existing = await findSeedPluginFixtureByName(ctx, spec.name);
+      if (existing && !args.reset) {
+        await ensureHighlightedPackageBadge(ctx, existing._id, userId, now);
+        skipped.push(spec.name);
+        continue;
+      }
+      if (existing && args.reset) {
+        await deleteSeedPluginFixtureByName(ctx, spec.name);
+      }
+
+      const compatibility = { pluginApiRange: ">=0.1.0" };
+      const capabilities = {
+        executesCode: true,
+        runtimeId: spec.runtimeId,
+        pluginKind: "runtime" as const,
+        capabilityTags: spec.capabilityTags,
+      };
+      const verification = {
+        tier: "source-linked" as const,
+        scope: "artifact-only" as const,
+        summary: "Local dev featured plugin fixture linked to source metadata.",
+        sourceRepo: spec.sourceRepo,
+        scanStatus: "clean" as const,
+      };
+      const normalizedName = normalizePackageName(spec.name);
+
+      const packageId = await ctx.db.insert("packages", {
+        name: spec.name,
+        normalizedName,
+        displayName: spec.displayName,
+        summary: spec.summary,
+        ownerUserId: userId,
+        ownerPublisherId: publisherId,
+        family: "code-plugin",
+        channel: "community",
+        isOfficial: spec.isOfficial,
+        runtimeId: spec.runtimeId,
+        sourceRepo: spec.sourceRepo,
+        latestReleaseId: undefined,
+        latestVersionSummary: undefined,
+        tags: {},
+        capabilityTags: spec.capabilityTags,
+        executesCode: true,
+        compatibility,
+        capabilities,
+        verification,
+        scanStatus: "clean",
+        stats: { ...spec.stats, versions: 0 },
+        softDeletedAt: undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const releaseId = await ctx.db.insert("packageReleases", {
+        packageId,
+        version: spec.version,
+        changelog: "Seeded local featured plugin release.",
+        summary: spec.summary,
+        distTags: ["latest"],
+        files: [
+          {
+            path: "README.md",
+            size: spec.readmeSize,
+            storageId: spec.storageId,
+            sha256: `seeded-featured-plugin-${normalizedName}`,
+            contentType: "text/markdown",
+          },
+        ],
+        integritySha256: `seeded-featured-plugin-integrity-${normalizedName}`,
+        extractedPackageJson: {
+          name: spec.name,
+          version: spec.version,
+          description: spec.summary,
+        },
+        compatibility,
+        capabilities,
+        verification,
+        sha256hash: `seeded-featured-plugin-hash-${normalizedName}`,
+        vtAnalysis: {
+          status: "clean",
+          verdict: "clean",
+          analysis: "Local featured plugin fixture scanned clean.",
+          source: "local-dev-seed",
+          checkedAt: now,
+        },
+        llmAnalysis: {
+          status: "clean",
+          verdict: "clean",
+          confidence: "high",
+          summary: "Local featured plugin fixture is safe sample content.",
+          model: "local-dev-seed",
+          checkedAt: now,
+        },
+        staticScan: {
+          status: "clean",
+          reasonCodes: [],
+          findings: [],
+          summary: "Local featured plugin fixture static scan clean.",
+          engineVersion: "local-dev-fixture",
+          checkedAt: now,
+        },
+        source: { kind: "github", repo: spec.sourceRepo, path: "." },
+        createdBy: userId,
+        publishActor: { kind: "user", userId },
+        createdAt: now,
+        softDeletedAt: undefined,
+      });
+
+      await ctx.db.patch(packageId, {
+        latestReleaseId: releaseId,
+        latestVersionSummary: {
+          version: spec.version,
+          createdAt: now,
+          changelog: "Seeded local featured plugin release.",
+          compatibility,
+          capabilities,
+          verification,
+        },
+        tags: { latest: releaseId },
+        stats: { ...spec.stats, versions: 1 },
+        updatedAt: now,
+      });
+      await ensureHighlightedPackageBadge(ctx, packageId, userId, now);
+      seeded.push(spec.name);
+    }
+
+    return { ok: true, seeded, skipped };
+  },
+});
+
 export const seedCliRoleHelpFixtures = rawInternalMutation({
   args: {},
   handler: async (ctx) => {
@@ -1135,11 +1516,7 @@ async function upsertRoleHelpFixtureUser(ctx: MutationCtx, user: RoleHelpFixture
   return created;
 }
 
-async function replaceRoleHelpFixtureToken(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-  now: number,
-) {
+async function replaceRoleHelpFixtureToken(ctx: MutationCtx, userId: Id<"users">, now: number) {
   const existingTokens = await ctx.db
     .query("apiTokens")
     .withIndex("by_user", (q) => q.eq("userId", userId))
@@ -1177,12 +1554,15 @@ export const seedSkillMutation = internalMutation({
     version: v.string(),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const { userId, publisherId } = await ensureLocalSeedOwner(ctx);
     const existing = await ctx.db
       .query("skills")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .unique();
 
     if (existing && !args.reset) {
+      await ensureHighlightedSkillBadge(ctx, existing._id, userId, now);
       return { ok: true, skipped: true, skillId: existing._id };
     }
 
@@ -1204,9 +1584,6 @@ export const seedSkillMutation = internalMutation({
       await ctx.db.delete(existing._id);
     }
 
-    const now = Date.now();
-    const { userId, publisherId } = await ensureLocalSeedOwner(ctx);
-
     const skillId = await ctx.db.insert("skills", {
       slug: args.slug,
       displayName: args.displayName,
@@ -1216,7 +1593,7 @@ export const seedSkillMutation = internalMutation({
       latestVersionId: undefined,
       tags: {},
       softDeletedAt: undefined,
-      badges: { redactionApproved: undefined },
+      badges: { highlighted: { byUserId: userId, at: now }, redactionApproved: undefined },
       statsDownloads: 0,
       statsStars: 0,
       statsInstallsCurrent: 0,
@@ -1232,6 +1609,7 @@ export const seedSkillMutation = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await ensureHighlightedSkillBadge(ctx, skillId, userId, now);
     const versionId = await ctx.db.insert("skillVersions", {
       skillId,
       version: args.version,

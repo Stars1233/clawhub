@@ -26,6 +26,7 @@ import {
   type PackageVersionDetail,
 } from "../../lib/packageApi";
 import { familyLabel } from "../../lib/packageLabels";
+import { isModerator } from "../../lib/roles";
 import { useAuthStatus } from "../../lib/useAuthStatus";
 
 type PluginDetailRateLimitState = {
@@ -184,8 +185,14 @@ function PluginDetailRoute() {
   const { name } = Route.useParams();
   const { detail, version, readme, rateLimited } = Route.useLoaderData() as PluginDetailLoaderData;
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { isAuthenticated } = useAuthStatus();
+  const { isAuthenticated, me } = useAuthStatus();
+  const staff = isModerator(me);
+  const setPackageBatch = useMutation(api.packages.setBatch);
   const requestPluginRescan = useMutation(api.packages.requestRescan);
+  const staffPackage = useQuery(
+    api.packages.getByNameForStaff,
+    staff && detail.package ? { name: detail.package.name } : "skip",
+  ) as { package: { _id: Id<"packages"> }; highlighted: { at: number } | null } | null | undefined;
   const rescanState = useQuery(
     api.packages.getOwnerRescanStateByName,
     isAuthenticated && detail.package ? { name: detail.package.name } : "skip",
@@ -242,6 +249,21 @@ function PluginDetailRoute() {
       : pkg.family === "bundle-plugin"
         ? `openclaw bundles install clawhub:${pkg.name}`
         : `openclaw skills install ${pkg.name}`;
+  const isHighlighted = Boolean(staffPackage?.highlighted);
+
+  const toggleHighlighted = async () => {
+    const packageId = staffPackage?.package._id;
+    if (!packageId) return;
+    try {
+      await setPackageBatch({
+        packageId,
+        batch: isHighlighted ? undefined : "highlighted",
+      });
+      toast.success(isHighlighted ? "Plugin unhighlighted." : "Plugin highlighted.");
+    } catch (error) {
+      toast.error(getUserFacingConvexError(error, "Could not update plugin highlight."));
+    }
+  };
 
   const capabilities = latestRelease?.capabilities ?? pkg.capabilities;
   const compatibility = latestRelease?.compatibility ?? pkg.compatibility;
@@ -302,6 +324,13 @@ function PluginDetailRoute() {
                 {isDownloadBlocked ? (
                   <div className="skill-title-actions">
                     <Badge variant="destructive">Download blocked</Badge>
+                  </div>
+                ) : null}
+                {staffPackage ? (
+                  <div className="skill-title-actions">
+                    <Button variant="outline" size="sm" onClick={() => void toggleHighlighted()}>
+                      {isHighlighted ? "Unhighlight" : "Highlight"}
+                    </Button>
                   </div>
                 ) : null}
               </div>
@@ -400,195 +429,194 @@ function PluginDetailRoute() {
           ) : null}
 
           {/* Capabilities */}
-        {capEntries.length > 0 ? (
-          <Card>
-            <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>Capabilities</CardTitle>
-              <InstallCopyButton
-                text={JSON.stringify(capabilities, null, 2)}
-                ariaLabel="Copy capabilities JSON"
-              />
-            </CardHeader>
-            <CardContent>
-              <dl className="flex flex-col gap-3 text-sm">
-                {capEntries.map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
-                  >
-                    <dt className="font-semibold text-[color:var(--ink-soft)] sm:pr-2">
-                      {CAPABILITY_LABELS[key] ?? key}
-                    </dt>
-                    <dd className="min-w-0 break-words text-[color:var(--ink)]">
-                      {key === "capabilityTags" && Array.isArray(value) ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {(value as string[]).map((tag) => (
-                            <Link key={tag} to="/plugins" search={{ q: tag }}>
-                              <Badge variant="compact">{tag}</Badge>
-                            </Link>
-                          ))}
-                        </div>
-                      ) : key === "hostTargets" && Array.isArray(value) ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {(value as string[]).map((target) => (
-                            <Badge key={target} variant="compact">
-                              {target}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        formatCapabilityValue(value)
-                      )}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-        ) : null}
+          {capEntries.length > 0 ? (
+            <Card>
+              <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>Capabilities</CardTitle>
+                <InstallCopyButton
+                  text={JSON.stringify(capabilities, null, 2)}
+                  ariaLabel="Copy capabilities JSON"
+                />
+              </CardHeader>
+              <CardContent>
+                <dl className="flex flex-col gap-3 text-sm">
+                  {capEntries.map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
+                    >
+                      <dt className="font-semibold text-[color:var(--ink-soft)] sm:pr-2">
+                        {CAPABILITY_LABELS[key] ?? key}
+                      </dt>
+                      <dd className="min-w-0 break-words text-[color:var(--ink)]">
+                        {key === "capabilityTags" && Array.isArray(value) ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(value as string[]).map((tag) => (
+                              <Link key={tag} to="/plugins" search={{ q: tag }}>
+                                <Badge variant="compact">{tag}</Badge>
+                              </Link>
+                            ))}
+                          </div>
+                        ) : key === "hostTargets" && Array.isArray(value) ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(value as string[]).map((target) => (
+                              <Badge key={target} variant="compact">
+                                {target}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          formatCapabilityValue(value)
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {/* Compatibility */}
-        {compatEntries.length > 0 ? (
-          <Card>
-            <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>Compatibility</CardTitle>
-              <InstallCopyButton
-                text={JSON.stringify(compatibility, null, 2)}
-                ariaLabel="Copy compatibility JSON"
-              />
-            </CardHeader>
-            <CardContent>
-              <dl className="flex flex-col gap-3 text-sm">
-                {compatEntries.map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
-                  >
-                    <dt className="font-semibold text-[color:var(--ink-soft)] sm:pr-2">
-                      {key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase())}
-                    </dt>
-                    <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-        ) : null}
+          {/* Compatibility */}
+          {compatEntries.length > 0 ? (
+            <Card>
+              <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>Compatibility</CardTitle>
+                <InstallCopyButton
+                  text={JSON.stringify(compatibility, null, 2)}
+                  ariaLabel="Copy compatibility JSON"
+                />
+              </CardHeader>
+              <CardContent>
+                <dl className="flex flex-col gap-3 text-sm">
+                  {compatEntries.map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
+                    >
+                      <dt className="font-semibold text-[color:var(--ink-soft)] sm:pr-2">
+                        {key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase())}
+                      </dt>
+                      <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {/* Verification */}
-        {verification && !isEmptyObject(verification) ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Verification</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="flex flex-col gap-3 text-sm">
-                {verification.tier ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Tier</dt>
-                    <dd className="text-[color:var(--ink)]">
-                      {verification.tier.replace(/-/g, " ")}
-                    </dd>
-                  </div>
-                ) : null}
-                {verification.scope ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Scope</dt>
-                    <dd className="text-[color:var(--ink)]">
-                      {verification.scope.replace(/-/g, " ")}
-                    </dd>
-                  </div>
-                ) : null}
-                {verification.summary ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Summary</dt>
-                    <dd className="text-[color:var(--ink)]">{verification.summary}</dd>
-                  </div>
-                ) : null}
-                {verification.sourceRepo
-                  ? (() => {
-                      const raw = verification.sourceRepo;
-                      const href = /^https?:\/\//.test(raw) ? raw : `https://github.com/${raw}`;
-                      const display = href.replace(/^https?:\/\//, "");
-                      return (
-                        <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                          <dt className="font-semibold text-[color:var(--ink-soft)]">Source</dt>
-                          <dd className="text-[color:var(--ink)]">
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex max-w-full flex-wrap items-center gap-1 break-all text-[color:var(--accent)] hover:underline"
-                            >
-                              {display}
-                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                            </a>
-                          </dd>
-                        </div>
-                      );
-                    })()
-                  : null}
-                {verification.sourceCommit ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Commit</dt>
-                    <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
-                      {verification.sourceCommit.slice(0, 12)}
-                    </dd>
-                  </div>
-                ) : null}
-                {verification.sourceTag ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Tag</dt>
-                    <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
-                      {verification.sourceTag}
-                    </dd>
-                  </div>
-                ) : null}
-                {verification.hasProvenance !== undefined ? (
-                  <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Provenance</dt>
-                    <dd className="text-[color:var(--ink)]">
-                      {verification.hasProvenance ? "Yes" : "No"}
-                    </dd>
-                  </div>
-                ) : null}
-                {verification.scanStatus ? (
-                  <div className="flex flex-col gap-1.5 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">Scan status</dt>
-                    <dd className="text-[color:var(--ink)]">{verification.scanStatus}</dd>
-                  </div>
-                ) : null}
-              </dl>
-            </CardContent>
-          </Card>
-        ) : null}
+          {/* Verification */}
+          {verification && !isEmptyObject(verification) ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Verification</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="flex flex-col gap-3 text-sm">
+                  {verification.tier ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Tier</dt>
+                      <dd className="text-[color:var(--ink)]">
+                        {verification.tier.replace(/-/g, " ")}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {verification.scope ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Scope</dt>
+                      <dd className="text-[color:var(--ink)]">
+                        {verification.scope.replace(/-/g, " ")}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {verification.summary ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Summary</dt>
+                      <dd className="text-[color:var(--ink)]">{verification.summary}</dd>
+                    </div>
+                  ) : null}
+                  {verification.sourceRepo
+                    ? (() => {
+                        const raw = verification.sourceRepo;
+                        const href = /^https?:\/\//.test(raw) ? raw : `https://github.com/${raw}`;
+                        const display = href.replace(/^https?:\/\//, "");
+                        return (
+                          <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                            <dt className="font-semibold text-[color:var(--ink-soft)]">Source</dt>
+                            <dd className="text-[color:var(--ink)]">
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex max-w-full flex-wrap items-center gap-1 break-all text-[color:var(--accent)] hover:underline"
+                              >
+                                {display}
+                                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                              </a>
+                            </dd>
+                          </div>
+                        );
+                      })()
+                    : null}
+                  {verification.sourceCommit ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Commit</dt>
+                      <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
+                        {verification.sourceCommit.slice(0, 12)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {verification.sourceTag ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Tag</dt>
+                      <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
+                        {verification.sourceTag}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {verification.hasProvenance !== undefined ? (
+                    <div className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Provenance</dt>
+                      <dd className="text-[color:var(--ink)]">
+                        {verification.hasProvenance ? "Yes" : "No"}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {verification.scanStatus ? (
+                    <div className="flex flex-col gap-1.5 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0">
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">Scan status</dt>
+                      <dd className="text-[color:var(--ink)]">{verification.scanStatus}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {/* Tags */}
-        {pkg.tags && Object.keys(pkg.tags).length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Tags</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="flex flex-col gap-3 text-sm">
-                {Object.entries(pkg.tags).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
-                  >
-                    <dt className="font-semibold text-[color:var(--ink-soft)]">{key}</dt>
-                    <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-        ) : null}
-
+          {/* Tags */}
+          {pkg.tags && Object.keys(pkg.tags).length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Tags</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="flex flex-col gap-3 text-sm">
+                  {Object.entries(pkg.tags).map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="flex flex-col gap-1.5 border-b border-[color:var(--line)] pb-3 last:border-b-0 last:pb-0 sm:grid sm:grid-cols-[minmax(140px,220px)_1fr] sm:gap-x-4 sm:gap-y-0"
+                    >
+                      <dt className="font-semibold text-[color:var(--ink-soft)]">{key}</dt>
+                      <dd className="min-w-0 break-all font-mono text-xs text-[color:var(--ink)]">
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </CardContent>
+            </Card>
+          ) : null}
         </DetailHero>
       </DetailPageShell>
     </main>

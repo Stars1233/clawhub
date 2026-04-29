@@ -16,6 +16,8 @@ import { api } from "../../convex/_generated/api";
 import { SoulCard } from "../components/SoulCard";
 import { SoulStatsTripletLine } from "../components/SoulStats";
 import { convexHttp } from "../convex/client";
+import { fetchFeaturedPlugins } from "../lib/featuredCatalog";
+import type { PackageListItem } from "../lib/packageApi";
 import type { PublicSkill, PublicSoul, PublicUser } from "../lib/publicUser";
 import { getSiteMode } from "../lib/site";
 
@@ -37,7 +39,7 @@ function SkillsHome() {
   };
 
   const [highlighted, setHighlighted] = useState<SkillPageEntry[]>([]);
-  const [popular, setPopular] = useState<SkillPageEntry[]>([]);
+  const [featuredPlugins, setFeaturedPlugins] = useState<PackageListItem[]>([]);
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
 
@@ -49,15 +51,9 @@ function SkillsHome() {
         if (!cancelled) setHighlighted(r as SkillPageEntry[]);
       })
       .catch(() => {});
-    convexHttp
-      .query(api.skills.listPublicPageV4, {
-        numItems: 12,
-        sort: "downloads",
-        dir: "desc",
-        nonSuspiciousOnly: true,
-      })
-      .then((r) => {
-        if (!cancelled) setPopular((r as { page: SkillPageEntry[] }).page);
+    fetchFeaturedPlugins(6)
+      .then((items) => {
+        if (!cancelled) setFeaturedPlugins(items);
       })
       .catch(() => {});
     return () => {
@@ -179,8 +175,24 @@ function SkillsHome() {
       {carouselCards.length > 0 && (
         <section className="home-v2-carousel-section">
           <div className="home-v2-carousel-header">
-            <h2>Featured</h2>
+            <h2>Featured skills</h2>
             <div className="home-v2-carousel-controls">
+              <Link
+                to="/skills"
+                search={{
+                  q: undefined,
+                  sort: undefined,
+                  dir: undefined,
+                  featured: true,
+                  highlighted: undefined,
+                  nonSuspicious: undefined,
+                  view: undefined,
+                  focus: undefined,
+                }}
+                className="home-v2-section-link"
+              >
+                View all <ArrowRight size={14} />
+              </Link>
               <button type="button" className="home-v2-carousel-btn" aria-label="Previous">
                 <ArrowLeft size={16} />
               </button>
@@ -345,21 +357,20 @@ function SkillsHome() {
         </div>
       </div>
 
-      {/* ═══ TRENDING ═══ */}
-      {popular.length > 0 && (
+      {/* ═══ FEATURED PLUGINS ═══ */}
+      {featuredPlugins.length > 0 && (
         <section className="home-v2-trending-section">
           <div className="home-v2-section-header">
-            <h2>Trending Now</h2>
+            <h2>Featured plugins</h2>
             <Link
-              to="/skills"
+              to="/plugins"
               search={{
                 q: undefined,
-                sort: "downloads",
-                dir: "desc",
-                highlighted: undefined,
-                nonSuspicious: true,
-                view: undefined,
-                focus: undefined,
+                cursor: undefined,
+                family: undefined,
+                featured: true,
+                verified: undefined,
+                executesCode: undefined,
               }}
               className="home-v2-section-link"
             >
@@ -367,27 +378,26 @@ function SkillsHome() {
             </Link>
           </div>
           <div className="home-v2-trending-grid">
-            {popular.slice(0, 6).map((entry) => (
-              <Link key={entry.skill._id} to={skillLink(entry)} className="home-v2-trend-card">
+            {featuredPlugins.slice(0, 6).map((plugin) => (
+              <Link
+                key={plugin.name}
+                to="/plugins/$name"
+                params={{ name: plugin.name }}
+                className="home-v2-trend-card"
+              >
                 <div className="home-v2-trend-head">
-                  <div className="home-v2-trend-title">
-                    {entry.skill.displayName || entry.skill.slug}
-                  </div>
+                  <div className="home-v2-trend-title">{plugin.displayName || plugin.name}</div>
                   <div className="home-v2-trend-creator">
-                    by {entry.ownerHandle || entry.owner?.handle || "unknown"}
+                    {plugin.ownerHandle ? `by @${plugin.ownerHandle}` : "community plugin"}
                   </div>
                 </div>
                 <div className="home-v2-trend-desc">
-                  {entry.skill.summary || "Agent-ready skill pack."}
+                  {plugin.summary || "Gateway plugin for OpenClaw workflows."}
                 </div>
                 <div className="home-v2-trend-bottom">
                   <div className="home-v2-trend-signals">
-                    <span>
-                      <Star size={12} /> {formatStat(entry.skill.stats?.stars)}
-                    </span>
-                    <span>
-                      <Download size={12} /> {formatStat(entry.skill.stats?.downloads)}
-                    </span>
+                    {plugin.isOfficial ? <span>Verified</span> : null}
+                    {plugin.latestVersion ? <span>v{plugin.latestVersion}</span> : null}
                   </div>
                   <span className="home-v2-trend-install">
                     <Download size={13} /> Install
