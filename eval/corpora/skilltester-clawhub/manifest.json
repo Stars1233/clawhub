@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0",
+  "corpus": "skilltester-clawhub",
+  "generated_at": "2026-04-29T23:48:19.057Z",
+  "builder": {
+    "script": "scripts/build-skilltester-clawhub-corpus.ts",
+    "version": "1.0.0"
+  },
+  "sources": {
+    "skilltester": {
+      "base_url": "https://skilltester.ai",
+      "source": "ClawHub",
+      "query": {
+        "source": "ClawHub",
+        "tested": "all",
+        "security": "all",
+        "sort": "views",
+        "summary": 1,
+        "page_size": 100,
+        "limit": "none"
+      }
+    },
+    "skills_repo": {
+      "url": "https://github.com/openclaw/skills",
+      "head": "684cb3999b54fef506029c36d33069b5ab8261a6",
+      "access": "gh repo clone with shallow blobless checkout plus gh api raw reads for exact SKILL.md commits"
+    }
+  },
+  "output": {
+    "corpus_file": "corpus.jsonl",
+    "rows": 356
+  },
+  "counts": {
+    "summaryRowsFetched": 356,
+    "detailRowsFetched": 356,
+    "detailFetchFailed": 0,
+    "rowsWritten": 356,
+    "fetchedContent": 336,
+    "missingContent": 20,
+    "ambiguous": 2,
+    "malformed": 1
+  },
+  "gaps": [
+    {
+      "skill_name": "financial-analyst-1.0.0-new",
+      "slug": "financial-analyst",
+      "version": "1.0.0-new",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "code-review-assistant-1.0.0-new",
+      "slug": "code-review-assistant",
+      "version": "1.0.0-new",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "feishu-evolver-wrapper-1.7.1",
+      "slug": "feishu-evolver-wrapper",
+      "version": "1.7.1",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "self-improving-agent-3.0.10",
+      "slug": "self-improving-agent",
+      "version": "3.0.10",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "seo-content-writer-5.1.0",
+      "slug": "seo-content-writer",
+      "version": "5.1.0",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "api-gateway-1.0.73",
+      "slug": "api-gateway",
+      "version": "1.0.73",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "neural-memory-4.24.0",
+      "slug": "neural-memory",
+      "version": "4.24.0",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "polymarket-fast-loop-1.5.1",
+      "slug": "polymarket-fast-loop",
+      "version": "1.5.1",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "irene-ai-news-1.0.0",
+      "slug": "irene-ai-news",
+      "version": "1.0.0",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "polymarket-analysis-2.1.0",
+      "slug": "polymarket-analysis",
+      "version": "2.1.0",
+      "reason": "Multiple openclaw/skills candidates contain the exact SkillTester version."
+    },
+    {
+      "skill_name": "lb-nextjs16-skill-16.1.6",
+      "slug": "lb-nextjs16-skill",
+      "version": "16.1.6",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "ai-ppt-generator-1.1.4",
+      "slug": "ai-ppt-generator",
+      "version": "1.1.4",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "cmc-x402-1.0.0",
+      "slug": "cmc-x402",
+      "version": "1.0.0",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "skill-demo-0.0.1-new",
+      "slug": "skill-demo",
+      "version": "0.0.1-new",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "supabase-1.0.0",
+      "slug": "supabase",
+      "version": "1.0.0",
+      "reason": "Multiple openclaw/skills candidates contain the exact SkillTester version."
+    },
+    {
+      "skill_name": "tencent-docs-1.0.22",
+      "slug": "tencent-docs",
+      "version": "1.0.22",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "tushare-1.0.8",
+      "slug": "tushare",
+      "version": "1.0.8",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "web-scraping-api-1.0.0-new",
+      "slug": "web-scraping-api",
+      "version": "1.0.0-new",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    },
+    {
+      "skill_name": "wed-NEUTERED",
+      "reason": "Could not parse an exact SemVer version from SkillTester skill_name."
+    },
+    {
+      "skill_name": "x-twitter-2.3.1",
+      "slug": "x-twitter",
+      "version": "2.3.1",
+      "reason": "No openclaw/skills _meta.json candidate contains the exact SkillTester version."
+    }
+  ]
+}
