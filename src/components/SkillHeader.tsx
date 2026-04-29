@@ -173,18 +173,18 @@ export function SkillHeader({
                   {nixPlugin ? <Badge variant="accent">Plugin bundle (nix)</Badge> : null}
                   {canManage || isStaff || settingsHref ? (
                     <div className="skill-title-actions">
+                      {isStaff ? (
+                        <Button asChild variant="outline" size="sm">
+                          <Link to="/management" search={{ skill: skill.slug }}>
+                            Manage
+                          </Link>
+                        </Button>
+                      ) : null}
                       {canManage ? (
                         <Button asChild variant="outline" size="sm" className="skill-settings-link">
                           <Link to="/publish-skill" search={{ updateSlug: skill.slug }}>
                             <Upload size={14} aria-hidden="true" />
                             New Version
-                          </Link>
-                        </Button>
-                      ) : null}
-                      {isStaff ? (
-                        <Button asChild variant="outline" size="sm">
-                          <Link to="/management" search={{ skill: skill.slug }}>
-                            Manage
                           </Link>
                         </Button>
                       ) : null}
