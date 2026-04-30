@@ -4,6 +4,7 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { gunzipSync } from "node:zlib";
 import { artifactInputsFromConvexExportZip } from "./convexExport";
 import { parseConvexJsonMatching } from "./convexOutput";
 import { reserveExportInputs } from "./exportLimit";
@@ -35,6 +36,11 @@ type ConvexBounds = {
 	sourceKind: SourceKind;
 	minCreatedAt: number | null;
 	maxCreatedAt: number | null;
+};
+
+type CompressedConvexPage = {
+	encoding: "gzip-base64-json";
+	payload: string;
 };
 
 type Options = {
@@ -226,12 +232,13 @@ async function runConvexPage(
 		paginationOpts: { cursor, numItems },
 		pageCount: options.batchPages,
 	};
-	return runConvexJson<ConvexPage>(
+	const compressed = await runConvexJson<CompressedConvexPage>(
 		options,
-		"securityDataset:listArtifactExportBatchInternal",
+		"securityDatasetNode:listArtifactExportBatchCompressedInternal",
 		args,
-		isConvexPage,
+		isCompressedConvexPage,
 	);
+	return decodeCompressedConvexPage(compressed);
 }
 
 async function runConvexBounds(options: Options, sourceKind: SourceKind): Promise<ConvexBounds> {
@@ -259,7 +266,12 @@ async function runConvexJson<T>(
 				env: convexRunEnv(),
 				maxBuffer: CONVEX_RUN_MAX_BUFFER_BYTES,
 			});
-			return parseConvexJsonMatching(result.stdout, validate);
+			try {
+				return parseConvexJsonMatching(result.stdout, validate);
+			} catch (parseError) {
+				await writeDebugConvexOutput(functionName, result.stdout);
+				throw parseError;
+			}
 		} catch (error) {
 			lastError = error;
 			if (attempt === DEFAULT_MAX_CONVEX_ATTEMPTS) break;
@@ -277,6 +289,16 @@ async function runConvexJson<T>(
 function convexRunEnv() {
 	const { FORCE_COLOR: _forceColor, ...env } = process.env;
 	return { ...env, NO_COLOR: "1" };
+}
+
+async function writeDebugConvexOutput(functionName: string, stdout: string) {
+	const debugDir = process.env.SECURITY_DATASET_DEBUG_CONVEX_OUTPUT_DIR;
+	if (!debugDir) return;
+	await mkdir(debugDir, { recursive: true });
+	const safeFunctionName = functionName.replace(/[^a-zA-Z0-9_-]/g, "-");
+	const path = join(debugDir, `${Date.now()}-${process.pid}-${safeFunctionName}.stdout`);
+	await writeFile(path, stdout);
+	console.error(`[snapshot] wrote debug Convex stdout to ${path}`);
 }
 
 function buildManifest(input: {
@@ -464,6 +486,19 @@ function isConvexBounds(value: unknown): value is ConvexBounds {
 		(typeof value.minCreatedAt === "number" || value.minCreatedAt === null) &&
 		(typeof value.maxCreatedAt === "number" || value.maxCreatedAt === null)
 	);
+}
+
+function isCompressedConvexPage(value: unknown): value is CompressedConvexPage {
+	return (
+		isRecord(value) && value.encoding === "gzip-base64-json" && typeof value.payload === "string"
+	);
+}
+
+function decodeCompressedConvexPage(value: CompressedConvexPage) {
+	const json = gunzipSync(Buffer.from(value.payload, "base64")).toString("utf8");
+	const parsed: unknown = JSON.parse(json);
+	if (isConvexPage(parsed)) return parsed;
+	throw new Error("Invalid compressed Convex page response.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
