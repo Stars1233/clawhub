@@ -35,4 +35,39 @@ describe("DetailSecuritySummary", () => {
       "[animation-duration:2.4s]",
     );
   });
+
+  it("shows staff-cleared public scan summaries as cleared", () => {
+    render(
+      <DetailSecuritySummary
+        scannerBasePath="/suka233/kmind-markdown-to-mindmap/security"
+        vtAnalysis={{ status: "suspicious", verdict: "suspicious", checkedAt: 1 }}
+        llmAnalysis={{ status: "suspicious", verdict: "suspicious", checkedAt: 1 }}
+        staticScan={{
+          status: "suspicious",
+          reasonCodes: ["suspicious.dynamic_code_execution"],
+          findings: [
+            {
+              code: "suspicious.dynamic_code_execution",
+              severity: "critical",
+              file: "SKILL.md",
+              line: 1,
+              message: "dynamic execution",
+              evidence: "exec",
+            },
+          ],
+          summary: "Suspicious dynamic execution.",
+          engineVersion: "v2.4.5",
+          checkedAt: 1,
+        }}
+        suppressScanResults
+        suppressedMessage="Security findings on these releases were reviewed by staff and cleared for public use."
+      />,
+    );
+
+    expect(screen.getByText(/reviewed by staff and cleared/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /VirusTotal.*Cleared/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /ClawScan.*Cleared/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Static analysis.*Cleared/i })).toBeTruthy();
+    expect(screen.queryByText("Suspicious")).toBeNull();
+  });
 });

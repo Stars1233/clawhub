@@ -240,6 +240,108 @@ describe("SkillDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Rescan" })).toBeNull();
   });
 
+  it("applies staff-cleared moderation overrides to the public security summary", async () => {
+    useQueryMock.mockImplementation((_fn: unknown, args: unknown) => {
+      if (args === "skip") return undefined;
+      return undefined;
+    });
+
+    render(
+      <SkillDetailPage
+        slug="kmind-markdown-to-mindmap"
+        initialData={{
+          result: {
+            skill: {
+              _id: skillId,
+              _creationTime: 0,
+              slug: "kmind-markdown-to-mindmap",
+              displayName: "KMind Markdown to Mindmap",
+              summary: "Convert markdown to mindmaps.",
+              ownerUserId: ownerId,
+              ownerPublisherId,
+              tags: {},
+              badges: {},
+              stats: {
+                stars: 12,
+                downloads: 34,
+                installsCurrent: 5,
+                installsAllTime: 8,
+                versions: 1,
+                comments: 0,
+              },
+              createdAt: 0,
+              updatedAt: 0,
+            },
+            owner: {
+              _id: ownerPublisherId,
+              _creationTime: 0,
+              kind: "user",
+              handle: "suka233",
+              displayName: "suka233",
+              linkedUserId: ownerId,
+            },
+            latestVersion: {
+              _id: versionId,
+              _creationTime: 0,
+              skillId,
+              version: "0.1.0",
+              fingerprint: "abc",
+              changelog: "Initial release",
+              parsed: { license: "MIT-0", frontmatter: {} },
+              files: [],
+              sha256hash: "abc123",
+              vtAnalysis: { status: "suspicious", verdict: "suspicious", checkedAt: 1 },
+              llmAnalysis: { status: "suspicious", verdict: "suspicious", checkedAt: 1 },
+              staticScan: {
+                status: "suspicious",
+                reasonCodes: ["suspicious.dynamic_code_execution"],
+                findings: [
+                  {
+                    code: "suspicious.dynamic_code_execution",
+                    severity: "critical",
+                    file: "SKILL.md",
+                    line: 1,
+                    message: "dynamic execution",
+                    evidence: "exec",
+                  },
+                ],
+                summary: "Suspicious dynamic execution.",
+                engineVersion: "v2.4.5",
+                checkedAt: 1,
+              },
+              createdBy: ownerId,
+              createdAt: 0,
+            },
+            moderationInfo: {
+              isPendingScan: false,
+              isMalwareBlocked: false,
+              isSuspicious: false,
+              isHiddenByMod: false,
+              isRemoved: false,
+              overrideActive: true,
+              verdict: "clean",
+              reasonCodes: ["suspicious.dynamic_code_execution"],
+              summary: "Security findings were reviewed by staff and cleared for public use.",
+              engineVersion: "v2.4.5",
+              updatedAt: 1,
+            },
+            forkOf: null,
+            canonical: null,
+          },
+          readme: "# KMind",
+          readmeError: null,
+        }}
+      />,
+    );
+
+    await screen.findByRole("heading", { name: "Security Scans" });
+    expect(screen.getByText(/reviewed by staff and cleared/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /VirusTotal.*Cleared/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /ClawScan.*Cleared/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Static analysis.*Cleared/i })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Suspicious/i })).toBeNull();
+  });
+
   it("shows an owner rescan action in the security summary for owned skills", async () => {
     useAuthStatusMock.mockReturnValue({
       isAuthenticated: true,

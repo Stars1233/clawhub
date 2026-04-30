@@ -87,6 +87,8 @@ export function getScanStatusInfo(status: string) {
     case "benign":
     case "clean":
       return { label: "Benign", className: "scan-status-clean" };
+    case "cleared":
+      return { label: "Cleared", className: "scan-status-clean" };
     case "malicious":
       return { label: "Malicious", className: "scan-status-malicious" };
     case "suspicious":

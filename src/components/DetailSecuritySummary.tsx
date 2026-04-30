@@ -41,6 +41,8 @@ type DetailSecuritySummaryProps = {
     engineVersion: string;
     checkedAt: number;
   } | null;
+  suppressScanResults?: boolean;
+  suppressedMessage?: string | null;
   rescanState?: DetailRescanState | null;
   onRequestRescan?: (() => Promise<void>) | null;
 };
@@ -53,6 +55,7 @@ function statusFromStaticScan(staticScan: DetailSecuritySummaryProps["staticScan
 function badgeVariantForScanStatus(status: string): BadgeProps["variant"] {
   const normalized = status.toLowerCase();
   if (normalized === "clean" || normalized === "benign") return "success";
+  if (normalized === "cleared") return "success";
   if (normalized === "suspicious") return "warning";
   if (normalized === "malicious" || normalized === "error") return "destructive";
   if (normalized === "pending" || normalized === "queued" || normalized === "loading") {
@@ -93,13 +96,19 @@ export function DetailSecuritySummary({
   vtAnalysis,
   llmAnalysis,
   staticScan,
+  suppressScanResults = false,
+  suppressedMessage,
   rescanState,
   onRequestRescan,
 }: DetailSecuritySummaryProps) {
   const [isRequestingRescan, setIsRequestingRescan] = useState(false);
-  const vtStatus = vtAnalysis?.verdict ?? vtAnalysis?.status ?? "pending";
-  const llmStatus = llmAnalysis?.verdict ?? llmAnalysis?.status ?? "pending";
-  const staticStatus = statusFromStaticScan(staticScan);
+  const vtStatus = suppressScanResults
+    ? "cleared"
+    : vtAnalysis?.verdict ?? vtAnalysis?.status ?? "pending";
+  const llmStatus = suppressScanResults
+    ? "cleared"
+    : llmAnalysis?.verdict ?? llmAnalysis?.status ?? "pending";
+  const staticStatus = suppressScanResults ? "cleared" : statusFromStaticScan(staticScan);
   const rescanButtonDisabledReason = rescanDisabledReason(rescanState);
   const isScanInProgress = Boolean(rescanState?.inProgressRequest);
   const rescanButtonLabel = isScanInProgress
@@ -141,6 +150,9 @@ export function DetailSecuritySummary({
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-2">
+          {suppressScanResults && suppressedMessage ? (
+            <p className="m-0 text-sm text-[color:var(--ink-soft)]">{suppressedMessage}</p>
+          ) : null}
           <ScannerRow href={`${scannerBasePath}/virustotal`} label="VirusTotal" status={vtStatus} />
           <ScannerRow href={`${scannerBasePath}/openclaw`} label="ClawScan" status={llmStatus} />
           <ScannerRow

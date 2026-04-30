@@ -399,6 +399,8 @@ export function SkillDetailPage({
       vtAnalysis={latestVersion.vtAnalysis ?? null}
       llmAnalysis={latestVersion.llmAnalysis ?? null}
       staticScan={latestVersion.staticScan ?? null}
+      suppressScanResults={suppressVersionScanResults}
+      suppressedMessage={scanResultsSuppressedMessage}
       rescanState={rescanState ?? null}
       onRequestRescan={canViewOwnerRescanState ? submitRescanRequest : null}
     />
