@@ -80,9 +80,9 @@ describe("security dataset eval CLI", () => {
         target_label: "malicious",
       },
     ]);
-    await expect(readJsonl(join(stdout.runDir, "scanner_disagreements.jsonl"))).resolves.toHaveLength(
-      2,
-    );
+    await expect(
+      readJsonl(join(stdout.runDir, "scanner_disagreements.jsonl")),
+    ).resolves.toHaveLength(2);
   });
 });
 
