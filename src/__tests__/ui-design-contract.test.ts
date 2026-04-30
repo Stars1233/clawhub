@@ -35,6 +35,37 @@ function cssMediaContaining(css: string, query: string, required: readonly strin
   throw new Error(`Missing media query ${query} containing ${required.join(", ")}`);
 }
 
+function cssBlock(css: string, selector: string) {
+  const start = css.indexOf(`${selector} {`);
+  expect(start, `Missing CSS block for ${selector}`).toBeGreaterThanOrEqual(0);
+  const end = css.indexOf("\n}", start);
+  expect(end, `Unclosed CSS block for ${selector}`).toBeGreaterThan(start);
+  return css.slice(start, end + 2);
+}
+
+function tokenValue(css: string, selector: string, token: string) {
+  const block = cssBlock(css, selector);
+  const match = block.match(new RegExp(`${token}:\\s*(#[0-9a-fA-F]{6})`));
+  expect(match, `Missing ${token} in ${selector}`).toBeTruthy();
+  return match![1];
+}
+
+function relativeLuminance(hex: string) {
+  const channels = [1, 3, 5].map((index) => {
+    const channel = Number.parseInt(hex.slice(index, index + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(foreground: string, background: string) {
+  const fg = relativeLuminance(foreground);
+  const bg = relativeLuminance(background);
+  const lighter = Math.max(fg, bg);
+  const darker = Math.min(fg, bg);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 describe("restored UI design contract", () => {
   const header = () => read("src/components/Header.tsx");
   const footer = () => read("src/components/Footer.tsx");
@@ -171,5 +202,25 @@ describe("restored UI design contract", () => {
     expect(themeSource).toContain("LEGACY_PREFERENCES_KEY");
     expect(themeSource).toContain("DEFAULT_THEME_SELECTION");
     expect(themeSource).toContain("clearLegacyVisualCookies");
+  });
+
+  it("keeps runtime requirement text high contrast in both themes", () => {
+    const css = styles();
+    const installCardSource = read("src/components/SkillInstallCard.tsx");
+
+    expect(installCardSource).toContain("runtime-requirements-panel");
+    expect(cssRule(css, ".runtime-requirements-panel .stat")).toContain("color: var(--ink)");
+
+    const darkRatio = contrastRatio(
+      tokenValue(css, ":root", "--ink"),
+      tokenValue(css, ":root", "--surface-muted"),
+    );
+    const lightRatio = contrastRatio(
+      tokenValue(css, '[data-theme-family="claw"][data-theme-resolved="light"]', "--ink"),
+      tokenValue(css, '[data-theme-family="claw"][data-theme-resolved="light"]', "--surface-muted"),
+    );
+
+    expect(darkRatio).toBeGreaterThanOrEqual(7);
+    expect(lightRatio).toBeGreaterThanOrEqual(7);
   });
 });

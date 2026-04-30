@@ -3842,6 +3842,10 @@ code {
   gap: 8px;
 }
 
+.runtime-requirements-panel .stat {
+  color: var(--ink);
+}
+
 .diff-card {
   gap: 16px;
 }
