@@ -1,4 +1,11 @@
 export function parseConvexJson(output: string): unknown {
+	return parseConvexJsonMatching(output, () => true);
+}
+
+export function parseConvexJsonMatching<T>(
+	output: string,
+	validate: (value: unknown) => value is T,
+): T {
 	for (let index = 0; index < output.length; index += 1) {
 		const char = output[index];
 		if (char !== "{" && char !== "[") continue;
@@ -7,13 +14,14 @@ export function parseConvexJson(output: string): unknown {
 		if (end === null) continue;
 
 		try {
-			return JSON.parse(output.slice(index, end));
+			const parsed: unknown = JSON.parse(output.slice(index, end));
+			if (validate(parsed)) return parsed;
 		} catch {
 			continue;
 		}
 	}
 
-	throw new Error(`Unable to parse Convex JSON output:\n${output}`);
+	throw new Error(`Unable to parse matching Convex JSON output (${output.length} bytes)`);
 }
 
 function findJsonValueEnd(output: string, start: number) {

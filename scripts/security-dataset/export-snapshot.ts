@@ -4,7 +4,7 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { parseConvexJson } from "./convexOutput";
+import { parseConvexJsonMatching } from "./convexOutput";
 import { reserveExportInputs } from "./exportLimit";
 import { buildSecurityDatasetManifest } from "./manifest";
 import {
@@ -198,12 +198,10 @@ async function runConvexJson<T>(
 			const result = await execFileAsync("bunx", commandArgs, {
 				cwd: process.cwd(),
 				encoding: "utf8",
-				env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+				env: convexRunEnv(),
 				maxBuffer: CONVEX_RUN_MAX_BUFFER_BYTES,
 			});
-			const parsed = parseConvexJson(result.stdout);
-			if (validate(parsed)) return parsed;
-			throw new Error(`Invalid Convex response for ${functionName}: ${summarizeValue(parsed)}`);
+			return parseConvexJsonMatching(result.stdout, validate);
 		} catch (error) {
 			lastError = error;
 			if (attempt === DEFAULT_MAX_CONVEX_ATTEMPTS) break;
@@ -216,6 +214,11 @@ async function runConvexJson<T>(
 
 	writeCommandErrorOutput(lastError);
 	throw lastError;
+}
+
+function convexRunEnv() {
+	const { FORCE_COLOR: _forceColor, ...env } = process.env;
+	return { ...env, NO_COLOR: "1" };
 }
 
 function buildManifest(input: {
@@ -414,12 +417,6 @@ function delay(ms: number) {
 
 function errorMessage(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
-}
-
-function summarizeValue(value: unknown) {
-	const json = JSON.stringify(value);
-	if (!json) return String(value);
-	return json.length > 500 ? `${json.slice(0, 500)}...` : json;
 }
 
 function writeCommandErrorOutput(error: unknown) {
