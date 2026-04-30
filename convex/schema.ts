@@ -54,6 +54,34 @@ const depRegistryAnalysisValidator = v.object({
   checkedAt: v.number(),
 });
 
+const llmAgenticRiskEvidenceValidator = v.object({
+  path: v.string(),
+  snippet: v.string(),
+  explanation: v.string(),
+});
+
+const llmAgenticRiskFindingValidator = v.object({
+  categoryId: v.string(),
+  categoryLabel: v.string(),
+  riskBucket: v.union(
+    v.literal("abnormal_behavior_control"),
+    v.literal("permission_boundary"),
+    v.literal("sensitive_data_protection"),
+  ),
+  status: v.union(v.literal("none"), v.literal("note"), v.literal("concern")),
+  severity: v.string(),
+  confidence: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+  evidence: v.optional(llmAgenticRiskEvidenceValidator),
+  userImpact: v.string(),
+  recommendation: v.string(),
+});
+
+const llmRiskSummaryBucketValidator = v.object({
+  status: v.union(v.literal("none"), v.literal("note"), v.literal("concern")),
+  summary: v.string(),
+  highestSeverity: v.optional(v.string()),
+});
+
 const users = defineTable({
   name: v.optional(v.string()),
   image: v.optional(v.string()),
@@ -490,6 +518,14 @@ const skillVersions = defineTable({
       ),
       guidance: v.optional(v.string()),
       findings: v.optional(v.string()),
+      agenticRiskFindings: v.optional(v.array(llmAgenticRiskFindingValidator)),
+      riskSummary: v.optional(
+        v.object({
+          abnormal_behavior_control: llmRiskSummaryBucketValidator,
+          permission_boundary: llmRiskSummaryBucketValidator,
+          sensitive_data_protection: llmRiskSummaryBucketValidator,
+        }),
+      ),
       model: v.optional(v.string()),
       checkedAt: v.number(),
     }),

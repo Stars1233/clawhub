@@ -16,13 +16,6 @@ function cssRule(css: string, selector: string) {
   return css.slice(start, end + 2);
 }
 
-function cssMedia(css: string, query: string) {
-  const start = css.indexOf(`@media ${query}`);
-  expect(start, `Missing media query ${query}`).toBeGreaterThanOrEqual(0);
-  const nextMedia = css.indexOf("@media ", start + 1);
-  return css.slice(start, nextMedia === -1 ? undefined : nextMedia);
-}
-
 function cssMediaContaining(css: string, query: string, required: readonly string[]) {
   let start = css.indexOf(`@media ${query}`);
   while (start >= 0) {
@@ -75,11 +68,12 @@ describe("restored UI design contract", () => {
     expect(themeControl).toContain("min-height: 50px");
     expect(themeControl).toContain("border: 1px solid var(--line)");
 
-    const compact = cssMedia(css, "(max-width: 760px)");
-    expect(compact).toContain("grid-template-columns: 56px minmax(0, 1fr) 56px");
-    expect(compact).toContain(".navbar-search {\n    display: flex;");
-    expect(compact).toContain(".navbar-tabs {\n    display: flex;");
-    expect(compact).toContain(".navbar-tabs-secondary {\n    display: inline-flex;");
+    const compact = cssMediaContaining(css, "(max-width: 760px)", [
+      "grid-template-columns: 56px minmax(0, 1fr) 56px",
+      ".navbar-search {\n    display: flex;",
+      ".navbar-tabs {\n    display: flex;",
+      ".navbar-tabs-secondary {\n    display: inline-flex;",
+    ]);
     expect(compact).not.toContain(".navbar-search {\n    display: none;");
     expect(compact).not.toContain(".navbar-tabs {\n    display: none;");
   });
