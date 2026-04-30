@@ -119,6 +119,12 @@ const SVG_HTML_INTERPOLATION_PATTERN =
   /(?:<body>[\s\S]{0,240}\$\{[^}]*svg[^}]*\}|writeFile(?:Sync)?\s*\([^)]*\.html[^)]*\$\{[^}]*svg[^}]*\}|\$\{[^}]*svg[^}]*\}[\s\S]{0,240}<\/body>)/i;
 const BROWSER_JS_DISABLED_PATTERN =
   /javaScriptEnabled\s*:\s*false|Content-Security-Policy|script-src\s+['"]?none/i;
+const AGENT_OUTPUT_DIR_ARGUMENT_PATTERN =
+  /add_argument\s*\(\s*["']--outdir["']|args\.outdir|output_path\s*=\s*Path\s*\(\s*args\.outdir\s*\)/i;
+const FFMPEG_FORCE_OUTPUT_PATTERN =
+  /subprocess\.run\s*\(\s*\[[\s\S]{0,1000}["']ffmpeg["'][\s\S]{0,1000}["']-y["'][\s\S]{0,1000}str\s*\(\s*output_path\s*\)/i;
+const OUTPUT_PATH_GUARD_PATTERN =
+  /TemporaryDirectory|mkdtemp|tempfile\.|resolve\s*\(\s*\).*relative_to|is_relative_to\s*\(/i;
 
 function hasMaliciousInstallPrompt(content: string) {
   const hasTerminalInstruction =
@@ -429,6 +435,13 @@ function findUnsafeBrowserFileRender(content: string) {
   return findFirstLine(content, FILE_URL_BROWSER_NAVIGATION_PATTERN);
 }
 
+function findUnsafeAgentControlledFileWrite(content: string) {
+  if (!AGENT_OUTPUT_DIR_ARGUMENT_PATTERN.test(content)) return null;
+  if (!FFMPEG_FORCE_OUTPUT_PATTERN.test(content)) return null;
+  if (OUTPUT_PATH_GUARD_PATTERN.test(content)) return null;
+  return findFirstLine(content, /subprocess\.run\s*\(|["']-y["']|output_path\s*=/);
+}
+
 function normalizeEnvName(value: unknown) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -587,6 +600,18 @@ function scanCodeFile(
       message:
         "Browser automation renders interpolated SVG/HTML from a file URL with JavaScript enabled.",
       evidence: unsafeBrowserFileRender.text,
+    });
+  }
+
+  const unsafeAgentControlledFileWrite = findUnsafeAgentControlledFileWrite(content);
+  if (unsafeAgentControlledFileWrite) {
+    addFinding(findings, {
+      code: REASON_CODES.UNSAFE_FILE_WRITE,
+      severity: "critical",
+      file: path,
+      line: unsafeAgentControlledFileWrite.line,
+      message: "Agent-controlled output path is passed to an overwrite-capable subprocess.",
+      evidence: unsafeAgentControlledFileWrite.text,
     });
   }
 

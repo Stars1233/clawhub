@@ -447,6 +447,57 @@ describe("moderationEngine", () => {
     expect(result.status).toBe("clean");
   });
 
+  it("flags overwrite-capable subprocesses using agent-controlled output dirs", () => {
+    const result = runStaticModerationScan({
+      slug: "telegram-offline-voice",
+      displayName: "Telegram Offline Voice",
+      summary: "Generate voice files",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "scripts/voice_gen.py", size: 512 }],
+      fileContents: [
+        {
+          path: "scripts/voice_gen.py",
+          content: [
+            'parser.add_argument("--outdir", required=True)',
+            "output_path = Path(args.outdir) / f'{session_id}.ogg'",
+            "subprocess.run([",
+            "  'ffmpeg', '-y', '-i', str(tmp_mp3), str(output_path),",
+            "], check=True)",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).toContain("suspicious.unsafe_file_write");
+    expect(result.status).toBe("suspicious");
+  });
+
+  it("does not flag guarded ffmpeg writes into temporary directories", () => {
+    const result = runStaticModerationScan({
+      slug: "safe-voice",
+      displayName: "Safe Voice",
+      summary: "Generate voice files",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "scripts/voice_gen.py", size: 512 }],
+      fileContents: [
+        {
+          path: "scripts/voice_gen.py",
+          content: [
+            'parser.add_argument("--outdir", required=True)',
+            "with tempfile.TemporaryDirectory() as safe_dir:",
+            "  output_path = Path(safe_dir) / 'voice.ogg'",
+            "  subprocess.run(['ffmpeg', '-y', '-i', str(tmp_mp3), str(output_path)], check=True)",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).not.toContain("suspicious.unsafe_file_write");
+    expect(result.status).toBe("clean");
+  });
+
   it("does not flag declared env vars sent to the intended API", () => {
     const result = runStaticModerationScan({
       slug: "todoist",
