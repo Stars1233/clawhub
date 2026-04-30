@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseConvexJson } from "./convexOutput";
 import { reserveExportInputs } from "./exportLimit";
+import { buildSecurityDatasetManifest } from "./manifest";
 import {
 	normalizeArtifactExport,
 	type ArtifactExportInput,
@@ -224,29 +225,30 @@ function buildManifest(input: {
 	shardCount: number;
 }) {
 	const { options, snapshotId, state, shardCount } = input;
-	return {
-		snapshot_id: snapshotId,
-		created_at: new Date().toISOString(),
-		repo_git_sha: gitSha(),
-		convex_deployment: options.deployment ?? (options.prod ? "prod" : "configured-dev"),
-		export_mode: options.mode,
-		page_size: options.pageSize,
+	const repoGitSha = gitSha();
+	return buildSecurityDatasetManifest({
+		snapshotId,
+		createdAt: new Date().toISOString(),
+		repoGitSha,
+		convexDeployment: options.deployment ?? (options.prod ? "prod" : "configured-dev"),
+		exportMode: options.mode,
+		pageSize: options.pageSize,
 		concurrency: options.concurrency,
 		shards: options.shards,
-		shard_count: shardCount,
-		row_counts: {
-			source_artifacts: state.sourceArtifacts,
+		shardCount,
+		rowCounts: {
+			sourceArtifacts: state.sourceArtifacts,
 			artifacts: state.rowCounts.artifacts,
-			scan_results: state.rowCounts.scanResults,
-			static_findings: state.rowCounts.staticFindings,
+			scanResults: state.rowCounts.scanResults,
+			staticFindings: state.rowCounts.staticFindings,
 			labels: state.rowCounts.labels,
 			splits: state.rowCounts.splits,
 		},
-		scanner_versions: Array.from(state.scannerVersions).sort(),
-		model_names: Array.from(state.modelNames).sort(),
-		redaction_policy_version: "public-signals-v1",
-		source_tables: ["skillVersions", "packageReleases"],
-	};
+		scannerVersions: Array.from(state.scannerVersions).sort(),
+		modelNames: Array.from(state.modelNames).sort(),
+		redactionPolicyVersion: "public-signals-v1",
+		sourceTables: ["skillVersions", "packageReleases"],
+	});
 }
 
 function buildSnapshotId(options: Options) {
@@ -407,7 +409,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function delay(ms: number) {
-	return new Promise<void>((resolve) => setTimeout(resolve, ms));
+	return new Promise<void>((done) => setTimeout(done, ms));
 }
 
 function errorMessage(error: unknown) {
