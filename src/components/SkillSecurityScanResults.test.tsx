@@ -70,6 +70,25 @@ const clawScanAnalysis: LlmAnalysis = {
   ],
 };
 
+const legacyClawScanAnalysis: LlmAnalysis = {
+  status: "clean",
+  verdict: "benign",
+  confidence: "medium",
+  summary: "Legacy plugin analysis summary.",
+  guidance: "Legacy plugin guidance.",
+  findings: "[legacy.rule] expected: Legacy finding text.",
+  model: "legacy-model",
+  checkedAt: Date.now(),
+  dimensions: [
+    {
+      name: "purpose_capability",
+      label: "Purpose & Capability",
+      rating: "ok",
+      detail: "Legacy dimension detail.",
+    },
+  ],
+};
+
 describe("SecurityScanResults static guidance", () => {
   it("renders capability-only states without scanner verdicts", () => {
     render(
@@ -225,5 +244,75 @@ describe("SecurityScanResults static guidance", () => {
     expect(screen.getAllByText("Permission boundary").length).toBeGreaterThan(0);
     expect(screen.getByText("metadata")).toBeTruthy();
     expect(screen.getByText("requires.env: TODOIST_API_TOKEN")).toBeTruthy();
+  });
+
+  it("keeps plugins with legacy ClawScan analysis on the generic detail page", () => {
+    render(
+      <SecurityScannerPage
+        scanner="openclaw"
+        entity={{
+          kind: "plugin",
+          title: "Plugin Guard",
+          name: "plugin-guard",
+          version: "2.0.0",
+          detailPath: "/plugins/plugin-guard",
+        }}
+        llmAnalysis={legacyClawScanAnalysis}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "ClawScan security" })).toBeTruthy();
+    expect(screen.getByText("Legacy plugin analysis summary.")).toBeTruthy();
+    expect(screen.getByText("Legacy plugin guidance.")).toBeTruthy();
+    expect(screen.getByText("[legacy.rule] expected: Legacy finding text.")).toBeTruthy();
+    expect(screen.getByText("Review Dimensions")).toBeTruthy();
+    expect(screen.getByText("Purpose & Capability")).toBeTruthy();
+    expect(screen.getByText("Legacy dimension detail.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Plugin Guard" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Scan Metadata" })).toBeNull();
+  });
+
+  it("keeps skills with legacy-only ClawScan analysis on the generic detail page", () => {
+    render(
+      <SecurityScannerPage
+        scanner="openclaw"
+        entity={{
+          kind: "skill",
+          title: "Legacy Skill",
+          name: "legacy-skill",
+          version: "1.0.0",
+          detailPath: "/local/legacy-skill",
+        }}
+        llmAnalysis={legacyClawScanAnalysis}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "ClawScan security" })).toBeTruthy();
+    expect(screen.getByText("Legacy plugin analysis summary.")).toBeTruthy();
+    expect(screen.getByText("Review Dimensions")).toBeTruthy();
+    expect(screen.getByText("Purpose & Capability")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Legacy Skill" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Scan Metadata" })).toBeNull();
+  });
+
+  it("shows the generic OpenClaw empty state when no analysis exists yet", () => {
+    render(
+      <SecurityScannerPage
+        scanner="openclaw"
+        entity={{
+          kind: "skill",
+          title: "Pending Skill",
+          name: "pending-skill",
+          version: "0.1.0",
+          detailPath: "/local/pending-skill",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "ClawScan security" })).toBeTruthy();
+    expect(screen.getAllByText("Pending").length).toBeGreaterThan(0);
+    expect(screen.getByText("No ClawScan analysis has been recorded yet.")).toBeTruthy();
+    expect(screen.queryByText("Review Dimensions")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Scan Metadata" })).toBeNull();
   });
 });

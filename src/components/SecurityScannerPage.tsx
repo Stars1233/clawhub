@@ -220,6 +220,27 @@ function OpenClawSecurityReport(props: SecurityScannerPageProps) {
   );
 }
 
+function LegacyOpenClawDetails({ analysis }: { analysis?: LlmAnalysis | null }) {
+  return (
+    <>
+      <DetailRow label="Verdict">{analysis?.verdict ?? analysis?.status ?? "Pending"}</DetailRow>
+      <DetailRow label="Confidence">{analysis?.confidence ?? "Not reported"}</DetailRow>
+      <DetailRow label="Model">{analysis?.model ?? "Not reported"}</DetailRow>
+      <DetailRow label="Summary">
+        {analysis?.summary ?? "No ClawScan analysis has been recorded yet."}
+      </DetailRow>
+      <DetailRow label="Guidance">{analysis?.guidance ?? null}</DetailRow>
+      <DetailRow label="Findings">
+        {analysis?.findings ? (
+          <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs">
+            {analysis.findings}
+          </pre>
+        ) : null}
+      </DetailRow>
+    </>
+  );
+}
+
 export function SecurityScannerPage(props: SecurityScannerPageProps) {
   const label = SCANNER_LABELS[props.scanner];
   const status = getScannerStatus(props);
@@ -231,7 +252,11 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
   );
   const sourceCommit = formatValue(props.source?.commit ?? props.source?.sha);
 
-  if (props.scanner === "openclaw") {
+  if (
+    props.scanner === "openclaw" &&
+    props.entity.kind === "skill" &&
+    hasClawScanRiskReview(props.llmAnalysis)
+  ) {
     return <OpenClawSecurityReport {...props} />;
   }
 
@@ -319,6 +344,10 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                     </>
                   ) : null}
 
+                  {props.scanner === "openclaw" ? (
+                    <LegacyOpenClawDetails analysis={props.llmAnalysis} />
+                  ) : null}
+
                   {props.scanner === "static-analysis" ? (
                     <>
                       <DetailRow label="Summary">
@@ -353,6 +382,28 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                 </dl>
               </CardContent>
             </Card>
+
+            {props.scanner === "openclaw" && props.llmAnalysis?.dimensions?.length ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Review Dimensions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <dl className="flex flex-col gap-3">
+                    {props.llmAnalysis.dimensions.map((dimension) => (
+                      <DetailRow key={dimension.name} label={dimension.label}>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="compact" className="w-fit">
+                            {dimension.rating}
+                          </Badge>
+                          <span>{dimension.detail}</span>
+                        </div>
+                      </DetailRow>
+                    ))}
+                  </dl>
+                </CardContent>
+              </Card>
+            ) : null}
 
             {props.scanner === "static-analysis" && props.staticScan?.findings?.length ? (
               <Card>
