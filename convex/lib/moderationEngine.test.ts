@@ -211,6 +211,54 @@ describe("moderationEngine", () => {
     expect(result.status).toBe("clean");
   });
 
+  it("flags wallet mnemonics passed as CLI argv", () => {
+    const result = runStaticModerationScan({
+      slug: "primer-x402",
+      displayName: "Primer x402",
+      summary: "Wallet tools",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "SKILL.md", size: 512 }],
+      fileContents: [
+        {
+          path: "SKILL.md",
+          content: [
+            "Create a wallet from a mnemonic:",
+            'npx @primersystems/x402 wallet from-mnemonic "legal winner thank year wave sausage worth useful legal winner thank yellow"',
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).toContain("suspicious.secret_argv_exposure");
+    expect(result.status).toBe("suspicious");
+    expect(result.findings[0]?.evidence).toContain("[REDACTED]");
+    expect(result.findings[0]?.evidence).not.toContain("legal winner");
+  });
+
+  it("does not flag docs that route mnemonics through env vars", () => {
+    const result = runStaticModerationScan({
+      slug: "primer-x402",
+      displayName: "Primer x402",
+      summary: "Wallet tools",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "SKILL.md", size: 256 }],
+      fileContents: [
+        {
+          path: "SKILL.md",
+          content: [
+            "Set X402_MNEMONIC in your shell or password manager.",
+            "npx @primersystems/x402 wallet import-from-env",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).not.toContain("suspicious.secret_argv_exposure");
+    expect(result.status).toBe("clean");
+  });
+
   it("flags dynamic eval usage as suspicious", () => {
     const result = runStaticModerationScan({
       slug: "demo",

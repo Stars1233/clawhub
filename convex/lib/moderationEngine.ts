@@ -99,6 +99,14 @@ const BROWSER_USE_AUTH_EVAL_PATTERN = /\bbrowser-use\s+(?:eval|python)\b/i;
 const AUTHENTICATED_MAIL_CONTEXT_PATTERN = /\b(?:mail\.google\.com|gmail|webmail|mailbox|inbox)\b/i;
 const PERSISTENCE_SCHEDULER_PATTERN =
   /\b(?:launchctl\s+load|crontab\b|LaunchAgents\/|systemctl\s+(?:--user\s+)?enable)\b/i;
+const SECRET_ARGV_WARNING_PATTERN =
+  /\b(?:do\s+not|don't|avoid|never|reject)\b[^\n]{0,120}\b(?:argv|argument|from-mnemonic|private[-_\s]?key|seed[-\s]?phrase|mnemonic)\b/i;
+const FROM_MNEMONIC_ARGV_PATTERN =
+  /\b(?:npx|bunx|pnpm\s+dlx|npm\s+exec|node|python3?|uvx)\b[^\n]{0,200}\bfrom-mnemonic\b[^\n]{0,200}(?:"[^"\n]{8,}"|'[^'\n]{8,}'|<[^>\n]{6,}>|\$[A-Z_][A-Z0-9_]*(?:MNEMONIC|SEED|PHRASE)[A-Z0-9_]*)/i;
+const SECRET_FLAG_ARGV_PATTERN =
+  /\b(?:npx|bunx|pnpm\s+dlx|npm\s+exec|node|python3?|uvx|docker\s+run)\b[^\n]{0,240}--(?:private-key|seed|seed-phrase|mnemonic|password|token)\s+(?:"[^"\n]{8,}"|'[^'\n]{8,}'|<[^>\n]{4,}>|\$[A-Z_][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|MNEMONIC|SEED|PHRASE)[A-Z0-9_]*)/i;
+const SECRET_ARGV_REDACTION_PATTERN =
+  /(\b(?:from-mnemonic|--(?:private-key|seed|seed-phrase|mnemonic|password|token))\s+)(["'`])([^"'`]{8,})\2/gi;
 
 function hasMaliciousInstallPrompt(content: string) {
   const hasTerminalInstruction =
@@ -190,6 +198,22 @@ function findBrowserCredentialAutomation(content: string) {
     }
   }
 
+  return null;
+}
+
+function redactSecretArgvEvidence(line: string) {
+  return line.replace(SECRET_ARGV_REDACTION_PATTERN, "$1$2[REDACTED]$2");
+}
+
+function findSecretArgvExposure(content: string) {
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (SECRET_ARGV_WARNING_PATTERN.test(line)) continue;
+    if (FROM_MNEMONIC_ARGV_PATTERN.test(line) || SECRET_FLAG_ARGV_PATTERN.test(line)) {
+      return { line: i + 1, text: redactSecretArgvEvidence(line) };
+    }
+  }
   return null;
 }
 
@@ -630,6 +654,18 @@ function scanMarkdownFile(path: string, content: string, findings: ModerationFin
       line: browserCredentialAutomation.line,
       message: "Browser automation instructions expose credentials or persist authenticated eval.",
       evidence: browserCredentialAutomation.text,
+    });
+  }
+
+  const secretArgvExposure = findSecretArgvExposure(content);
+  if (secretArgvExposure) {
+    addFinding(findings, {
+      code: REASON_CODES.SECRET_ARGV_EXPOSURE,
+      severity: "critical",
+      file: path,
+      line: secretArgvExposure.line,
+      message: "Instructions pass high-value credentials through process argv.",
+      evidence: secretArgvExposure.text,
     });
   }
 
