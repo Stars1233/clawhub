@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { parseConvexJson } from "./convexOutput";
+import { reserveExportInputs } from "./exportLimit";
 import {
 	normalizeArtifactExport,
 	type ArtifactExportInput,
@@ -140,10 +141,7 @@ async function exportShard(input: {
 	let cursor: string | null = null;
 	while (!isLimitReached(options, state)) {
 		const page = await runConvexPage(options, shard, cursor, options.pageSize);
-		const remaining =
-			options.limit === null ? page.page.length : options.limit - state.sourceArtifacts;
-		if (remaining <= 0) return;
-		const inputs = page.page.slice(0, remaining);
+		const inputs = reserveExportInputs(page.page, state, options.limit);
 		if (inputs.length > 0) {
 			await processArtifactInputs({ inputs, state, writers });
 			console.error(
@@ -264,7 +262,6 @@ async function processArtifactInputs(input: {
 }) {
 	const { inputs, state, writers } = input;
 	const rows = normalizeArtifactExport(inputs);
-	state.sourceArtifacts += inputs.length;
 	state.rowCounts.artifacts += rows.artifacts.length;
 	state.rowCounts.scanResults += rows.scanResults.length;
 	state.rowCounts.staticFindings += rows.staticFindings.length;
