@@ -82,6 +82,12 @@ const SECRET_ASSIGNMENT_PATTERN =
   /\b(?:[A-Za-z0-9]+[_\s-]+)*(?:(?:api|client|consumer)[_\s-]?(?:secret|key)|secret[_\s-]?key|access[_\s-]?(?:token|key|secret|grant)|auth[_\s-]?token|bearer[_\s-]?token|private[_\s-]?key|service[_\s-]?role[_\s-]?key|github[_\s-]?(?:pat|token)|password)\b\s*[:=]\s*["'`]?([A-Za-z0-9][A-Za-z0-9._~+/=-]{15,})["'`]?/i;
 const AUTH_HEADER_SECRET_PATTERN =
   /\b(?:authorization|x-api-key|x-api-secret)\b\s*[:=]\s*(?:Bearer\s+)?["'`]?([A-Za-z0-9][A-Za-z0-9._~+/=-]{15,})["'`]?/i;
+const SHELL_CREDENTIAL_VARIABLE_PATTERN =
+  /\$(?:\{)?[A-Z_][A-Z0-9_]*(?:TOKEN|PAT|SECRET|KEY)[A-Z0-9_]*(?:\})?/;
+const GIT_REMOTE_CREDENTIAL_URL_PATTERN =
+  /\bgit\s+remote\s+set-url\b[^\n]*https?:\/\/[^\s"'`]*\$(?:\{)?[A-Z_][A-Z0-9_]*(?:TOKEN|PAT|SECRET|KEY)[A-Z0-9_]*(?:\})?[^\s"'`]*@/i;
+const MEMORY_CREDENTIAL_STORAGE_PATTERN =
+  /\bsave\s+(?:it|the\s+(?:token|secret|credential|key|pat))\s+to\s+(?:your\s+)?(?:memory|conversation|chat)\b/i;
 
 function hasMaliciousInstallPrompt(content: string) {
   const hasTerminalInstruction =
@@ -132,6 +138,21 @@ function findHardcodedSecret(content: string) {
       line: i + 1,
       text: line.replaceAll(secret, "[REDACTED]"),
     };
+  }
+  return null;
+}
+
+function findCredentialExposureInstruction(content: string) {
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (
+      GIT_REMOTE_CREDENTIAL_URL_PATTERN.test(line) ||
+      (MEMORY_CREDENTIAL_STORAGE_PATTERN.test(line) &&
+        SHELL_CREDENTIAL_VARIABLE_PATTERN.test(content))
+    ) {
+      return { line: i + 1, text: line };
+    }
   }
   return null;
 }
@@ -505,6 +526,18 @@ function scanCodeFile(
 
 function scanMarkdownFile(path: string, content: string, findings: ModerationFinding[]) {
   if (!MARKDOWN_EXTENSION.test(path)) return;
+
+  const credentialExposure = findCredentialExposureInstruction(content);
+  if (credentialExposure) {
+    addFinding(findings, {
+      code: REASON_CODES.CREDENTIAL_EXPOSURE_INSTRUCTIONS,
+      severity: "critical",
+      file: path,
+      line: credentialExposure.line,
+      message: "Instructions expose credentials through shell, git config, or agent memory.",
+      evidence: credentialExposure.text,
+    });
+  }
 
   if (hasMaliciousInstallPrompt(content)) {
     const match = findFirstLine(
