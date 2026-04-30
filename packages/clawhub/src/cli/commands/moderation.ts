@@ -4,6 +4,7 @@ import {
   ApiRoutes,
   ApiV1BanUserResponseSchema,
   ApiV1SetRoleResponseSchema,
+  ApiV1UnbanUserResponseSchema,
   ApiV1UserSearchResponseSchema,
   parseArk,
 } from "../../schema/index.js";
@@ -62,6 +63,65 @@ export async function cmdBanUser(
       return parsed;
     }
     spinner.succeed(`OK. Banned ${resolved.label} (${formatDeletedSkills(parsed.deletedSkills)})`);
+    return parsed;
+  } catch (error) {
+    spinner.fail(formatError(error));
+    throw error;
+  }
+}
+
+export async function cmdUnbanUser(
+  opts: GlobalOpts,
+  identifierArg: string,
+  options: { yes?: boolean; id?: boolean; fuzzy?: boolean; reason?: string },
+  inputAllowed: boolean,
+) {
+  const raw = identifierArg.trim();
+  if (!raw) fail("Handle or user id required");
+
+  const reason = options.reason?.trim() || undefined;
+
+  const token = await requireAuthToken();
+  const registry = await getRegistry(opts, { cache: true });
+  const allowPrompt = isInteractive() && inputAllowed !== false;
+  const resolved = await resolveUserIdentifier(
+    registry,
+    token,
+    raw,
+    { id: options.id, fuzzy: options.fuzzy },
+    allowPrompt,
+  );
+  if (!resolved) return undefined;
+  if (!options.yes) {
+    if (!allowPrompt) fail("Pass --yes (no input)");
+    const ok = await promptConfirm(
+      `Unban ${resolved.label}? (admin only; restores eligible skills)`,
+    );
+    if (!ok) return undefined;
+  }
+
+  const spinner = createSpinner(`Unbanning ${resolved.label}`);
+  try {
+    const result = await apiRequest(
+      registry,
+      {
+        method: "POST",
+        path: `${ApiRoutes.users}/unban`,
+        token,
+        body: resolved.userId
+          ? { userId: resolved.userId, reason }
+          : { handle: resolved.handle, reason },
+      },
+      ApiV1UnbanUserResponseSchema,
+    );
+    const parsed = parseArk(ApiV1UnbanUserResponseSchema, result, "Unban user response");
+    if (parsed.alreadyUnbanned) {
+      spinner.succeed(`OK. ${resolved.label} already unbanned`);
+      return parsed;
+    }
+    spinner.succeed(
+      `OK. Unbanned ${resolved.label} (${formatRestoredSkills(parsed.restoredSkills)})`,
+    );
     return parsed;
   } catch (error) {
     spinner.fail(formatError(error));
@@ -225,4 +285,10 @@ function formatDeletedSkills(count: number) {
   if (!Number.isFinite(count)) return "deleted skills unknown";
   if (count === 1) return "deleted 1 skill";
   return `deleted ${count} skills`;
+}
+
+function formatRestoredSkills(count: number | undefined) {
+  if (!Number.isFinite(count)) return "restored skills unknown";
+  if (count === 1) return "restored 1 skill";
+  return `restored ${count} skills`;
 }

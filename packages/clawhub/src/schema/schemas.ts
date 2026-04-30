@@ -340,6 +340,12 @@ export const ApiV1BanUserResponseSchema = type({
   deletedSkills: "number",
 });
 
+export const ApiV1UnbanUserResponseSchema = type({
+  ok: "true",
+  alreadyUnbanned: "boolean",
+  restoredSkills: "number?",
+});
+
 export const ApiV1SetRoleResponseSchema = type({
   ok: "true",
   role: '"admin"|"moderator"|"user"',

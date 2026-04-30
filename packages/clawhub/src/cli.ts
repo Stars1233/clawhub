@@ -13,7 +13,7 @@ import {
   cmdUnhideSkill,
 } from "./cli/commands/delete.js";
 import { cmdInspect } from "./cli/commands/inspect.js";
-import { cmdBanUser, cmdSetRole } from "./cli/commands/moderation.js";
+import { cmdBanUser, cmdSetRole, cmdUnbanUser } from "./cli/commands/moderation.js";
 import { cmdMergeSkill, cmdRenameSkill } from "./cli/commands/ownership.js";
 import {
   cmdExplorePackages,
@@ -511,6 +511,19 @@ program
   .action(async (handleOrId, options) => {
     const opts = await resolveGlobalOpts();
     await cmdBanUser(opts, handleOrId, options, isInputAllowed());
+  });
+
+program
+  .command("unban-user", adminCommandOptions)
+  .description("Unban a user and restore eligible skills (admin only)")
+  .argument("<handleOrId>", "User handle (default) or user id")
+  .option("--id", "Treat argument as user id")
+  .option("--fuzzy", "Resolve handle via fuzzy user search (admin only)")
+  .option("--reason <reason>", "Unban reason (optional)")
+  .option("--yes", "Skip confirmation")
+  .action(async (handleOrId, options) => {
+    const opts = await resolveGlobalOpts();
+    await cmdUnbanUser(opts, handleOrId, options, isInputAllowed());
   });
 
 program

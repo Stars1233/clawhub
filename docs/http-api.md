@@ -515,6 +515,28 @@ Response:
 { "ok": true, "alreadyBanned": false, "deletedSkills": 3 }
 ```
 
+### `POST /api/v1/users/unban`
+
+Unban a user and restore eligible skills (admin only).
+
+Body:
+
+```json
+{ "handle": "user_handle", "reason": "optional unban reason" }
+```
+
+or
+
+```json
+{ "userId": "users_...", "reason": "optional unban reason" }
+```
+
+Response:
+
+```json
+{ "ok": true, "alreadyUnbanned": false, "restoredSkills": 3 }
+```
+
 ### `POST /api/v1/users/role`
 
 Change a user role (admin only).

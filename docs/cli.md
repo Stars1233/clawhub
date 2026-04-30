@@ -205,6 +205,15 @@ Stores your API token + cached registry URL.
 - `--reason` records an optional ban reason.
 - `--yes` skips confirmation.
 
+### `unban-user <handleOrId>`
+
+- Unban a user and restore eligible skills (admin only).
+- Calls `POST /api/v1/users/unban`.
+- `--id` treats the argument as a user id instead of a handle.
+- `--fuzzy` resolves the handle via fuzzy user search (admin only).
+- `--reason` records an optional unban reason.
+- `--yes` skips confirmation.
+
 ### `set-role <handleOrId> <role>`
 
 - Change a user role (admin only).

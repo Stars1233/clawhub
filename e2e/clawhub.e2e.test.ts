@@ -88,7 +88,7 @@ function shouldSeedRoleHelpTokens() {
 
 const itIfLiveMutations = allowLiveMutations() ? it : it.skip;
 const itIfAdminAndUserTokens =
-  getAdminToken() && getUserToken() || shouldSeedRoleHelpTokens() ? it : it.skip;
+  (getAdminToken() && getUserToken()) || shouldSeedRoleHelpTokens() ? it : it.skip;
 
 type RoleHelpTokens = {
   adminToken: string;
@@ -325,9 +325,11 @@ describe("clawhub e2e", () => {
 
       expect(adminResult.status).toBe(0);
       expect(adminResult.stdout).toContain("ban-user");
+      expect(adminResult.stdout).toContain("unban-user");
       expect(adminResult.stdout).toContain("set-role");
       expect(userResult.status).toBe(0);
       expect(userResult.stdout).not.toContain("ban-user");
+      expect(userResult.stdout).not.toContain("unban-user");
       expect(userResult.stdout).not.toContain("set-role");
     } finally {
       await rm(adminCfg.dir, { recursive: true, force: true });
