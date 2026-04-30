@@ -2,7 +2,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { tokenize } from "./lib/searchText";
-import { __test, hydrateResults, lexicalFallbackSkills, searchSkills } from "./search";
+import {
+  __test,
+  hydrateResults,
+  lexicalFallbackSouls,
+  lexicalFallbackSkills,
+  searchSkills,
+  searchSouls,
+} from "./search";
 
 const { generateEmbeddingMock } = vi.hoisted(() => ({
   generateEmbeddingMock: vi.fn(),
@@ -27,7 +34,16 @@ const searchSkillsHandler = (
     score: number;
   }>
 )._handler;
+const searchSoulsHandler = (
+  searchSouls as unknown as WrappedHandler<{
+    soul: { slug: string; _id: string };
+    score: number;
+  }>
+)._handler;
 const lexicalFallbackSkillsHandler = (lexicalFallbackSkills as unknown as WrappedHandler)._handler;
+const lexicalFallbackSoulsHandler = (
+  lexicalFallbackSouls as unknown as WrappedHandler<{ soul: { slug: string; _id: string } }>
+)._handler;
 const hydrateResultsHandler = (
   hydrateResults as unknown as {
     _handler: (
@@ -1054,6 +1070,98 @@ describe("search helpers", () => {
   });
 });
 
+describe("soul search", () => {
+  it("falls back to lexical soul search when embedding generation fails", async () => {
+    generateEmbeddingMock.mockRejectedValueOnce(new Error("API unavailable"));
+    const fallback = [
+      {
+        soul: makePublicSoul({ id: "souls:orf", slug: "orf", displayName: "ORF" }),
+        version: null,
+      },
+    ];
+    const vectorSearch = vi.fn().mockRejectedValue(new Error("should not be called"));
+    const runQuery = vi.fn().mockResolvedValueOnce(fallback);
+
+    const result = await searchSoulsHandler(
+      {
+        vectorSearch,
+        runQuery,
+      },
+      { query: "orf", limit: 10 },
+    );
+
+    expect(vectorSearch).not.toHaveBeenCalled();
+    expect(result).toHaveLength(1);
+    expect(result[0].soul.slug).toBe("orf");
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ query: "orf", queryTokens: ["orf"] }),
+    );
+  });
+
+  it("uses the active souls index for lexical fallback", async () => {
+    const activeSoul = makeSoulDoc({
+      id: "souls:active",
+      slug: "orf-active",
+      displayName: "ORF Active",
+    });
+    const ctx = makeSoulLexicalCtx({
+      exactSlugSoul: null,
+      recentSouls: [activeSoul],
+    });
+
+    const result = await lexicalFallbackSoulsHandler(ctx, {
+      query: "orf",
+      queryTokens: ["orf"],
+      limit: 10,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].soul.slug).toBe("orf-active");
+    expect(ctx.usedIndexes).toContain("by_active_updated");
+  });
+
+  it("hydrates only new soul embedding ids across vector iterations", async () => {
+    generateEmbeddingMock.mockResolvedValueOnce([0, 1, 2]);
+    const firstBatch = Array.from({ length: 200 }, (_, i) => ({
+      _id: i === 0 ? "soulEmbeddings:a" : `soulEmbeddings:filler${i}`,
+      _score: i === 0 ? 0.9 : 0.1,
+    }));
+    const secondBatch = [...firstBatch, { _id: "soulEmbeddings:b", _score: 0.4 }];
+    const hydrateCalls: string[][] = [];
+    const runQuery = vi.fn(
+      async (_ref: unknown, args: { embeddingIds?: string[]; query?: string }) => {
+        if (args.embeddingIds) {
+          hydrateCalls.push(args.embeddingIds);
+          return args.embeddingIds
+            .filter((id) => id === "soulEmbeddings:a" || id === "soulEmbeddings:b")
+            .map((embeddingId) => ({
+              embeddingId,
+              soul: makePublicSoul({
+                id: `souls:${embeddingId.split(":").at(-1)}`,
+                slug: `soul-${embeddingId.split(":").at(-1)}`,
+                displayName: `Soul ${embeddingId.split(":").at(-1)}`,
+              }),
+              version: null,
+            }));
+        }
+        return [];
+      },
+    );
+
+    await searchSoulsHandler(
+      {
+        vectorSearch: vi.fn().mockResolvedValueOnce(firstBatch).mockResolvedValueOnce(secondBatch),
+        runQuery,
+      },
+      { query: "soul", limit: 50 },
+    );
+
+    expect(hydrateCalls).toHaveLength(2);
+    expect(hydrateCalls[1]).toEqual(["soulEmbeddings:b"]);
+  });
+});
+
 function makePublicSkill(params: {
   id: string;
   slug: string;
@@ -1101,6 +1209,45 @@ function makeSkillDoc(params: {
     moderationStatus: "active",
     moderationFlags: params.moderationFlags ?? [],
     moderationReason: params.moderationReason,
+    softDeletedAt: params.softDeletedAt as number | undefined,
+  };
+}
+
+function makePublicSoul(params: {
+  id: string;
+  slug: string;
+  displayName: string;
+  downloads?: number;
+}) {
+  return {
+    _id: params.id,
+    _creationTime: 1,
+    slug: params.slug,
+    displayName: params.displayName,
+    summary: `${params.displayName} summary`,
+    ownerUserId: "users:owner",
+    ownerPublisherId: undefined,
+    latestVersionId: "soulVersions:1",
+    tags: {},
+    stats: {
+      downloads: params.downloads ?? 0,
+      stars: 0,
+      versions: 1,
+      comments: 0,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function makeSoulDoc(params: {
+  id: string;
+  slug: string;
+  displayName: string;
+  softDeletedAt?: number;
+}) {
+  return {
+    ...makePublicSoul(params),
     softDeletedAt: params.softDeletedAt as number | undefined,
   };
 }
@@ -1164,6 +1311,39 @@ function makeLexicalCtx(params: {
         if (id.startsWith("users:")) return { _id: id, handle: "owner" };
         if (id.startsWith("skillVersions:")) return { _id: id, version: "1.0.0" };
         return null;
+      }),
+    },
+  };
+}
+
+function makeSoulLexicalCtx(params: {
+  exactSlugSoul: ReturnType<typeof makeSoulDoc> | null;
+  recentSouls: Array<ReturnType<typeof makeSoulDoc>>;
+}) {
+  const usedIndexes: string[] = [];
+  return {
+    usedIndexes,
+    db: {
+      query: vi.fn((table: string) => {
+        if (table !== "souls") throw new Error(`Unexpected table ${table}`);
+        return {
+          withIndex: (index: string) => {
+            usedIndexes.push(index);
+            if (index === "by_slug") {
+              return {
+                unique: vi.fn().mockResolvedValue(params.exactSlugSoul),
+              };
+            }
+            if (index === "by_active_updated") {
+              return {
+                order: () => ({
+                  take: vi.fn().mockResolvedValue(params.recentSouls),
+                }),
+              };
+            }
+            throw new Error(`Unexpected souls index ${index}`);
+          },
+        };
       }),
     },
   };
