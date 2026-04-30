@@ -76,6 +76,8 @@ describe("devSeed rescan UX fixtures", () => {
     const args = {
       flaggedSkillStorageId: "storage:skill",
       flaggedSkillMd: "# Flagged skill",
+      scannedSkillStorageId: "storage:scanned-skill",
+      scannedSkillMd: "# Scanned skill",
       flaggedPluginStorageId: "storage:plugin",
       flaggedPluginReadme: "# Flagged plugin",
       scannedPluginStorageId: "storage:scanned-plugin",
@@ -89,13 +91,21 @@ describe("devSeed rescan UX fixtures", () => {
     expect(tables.users).toHaveLength(1);
     expect(tables.users?.[0]).toEqual(expect.objectContaining({ handle: "local" }));
     expect(tables.publishers).toHaveLength(1);
-    expect(tables.skills).toHaveLength(1);
-    expect(tables.skills?.[0]).toEqual(
+    expect(tables.skills).toHaveLength(2);
+    expect(tables.skills?.find((skill) => skill.slug === "local-flagged-wallet-sync")).toEqual(
       expect.objectContaining({
         ownerUserId: tables.users?.[0]?._id,
         ownerPublisherId: tables.publishers?.[0]?._id,
         moderationStatus: "hidden",
         moderationVerdict: "malicious",
+      }),
+    );
+    expect(tables.skills?.find((skill) => skill.slug === "local-agentic-risk-demo")).toEqual(
+      expect.objectContaining({
+        ownerUserId: tables.users?.[0]?._id,
+        ownerPublisherId: tables.publishers?.[0]?._id,
+        moderationStatus: "active",
+        moderationVerdict: "suspicious",
       }),
     );
     expect(tables.packages).toHaveLength(2);
@@ -125,6 +135,32 @@ describe("devSeed rescan UX fixtures", () => {
         sha256hash: "seeded-scanned-plugin-hash",
         vtAnalysis: expect.objectContaining({ status: "clean" }),
         llmAnalysis: expect.objectContaining({ status: "suspicious" }),
+        staticScan: expect.objectContaining({ status: "suspicious" }),
+      }),
+    );
+
+    const scannedSkill = tables.skills?.find((skill) => skill.slug === "local-agentic-risk-demo");
+    const scannedSkillVersion = tables.skillVersions?.find(
+      (version) => version.skillId === scannedSkill?._id,
+    );
+    expect(scannedSkillVersion).toEqual(
+      expect.objectContaining({
+        sha256hash: "seeded-agentic-risk-skill-hash",
+        vtAnalysis: expect.objectContaining({ status: "clean" }),
+        llmAnalysis: expect.objectContaining({
+          status: "suspicious",
+          riskSummary: expect.objectContaining({
+            sensitive_data_protection: expect.objectContaining({ status: "concern" }),
+          }),
+          agenticRiskFindings: expect.arrayContaining([
+            expect.objectContaining({
+              categoryId: "ASI06",
+              riskBucket: "sensitive_data_protection",
+              status: "concern",
+              evidence: expect.objectContaining({ path: "SKILL.md" }),
+            }),
+          ]),
+        }),
         staticScan: expect.objectContaining({ status: "suspicious" }),
       }),
     );

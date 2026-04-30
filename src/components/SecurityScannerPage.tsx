@@ -2,7 +2,9 @@ import { ArrowLeft, Clock, ExternalLink, Fingerprint } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Id } from "../../convex/_generated/dataModel";
 import {
+  ClawScanRiskReview,
   getScanStatusInfo,
+  hasClawScanRiskReview,
   type LlmAnalysis,
   type StaticFinding,
   type VtAnalysis,
@@ -70,8 +72,18 @@ function formatValue(value: unknown): string | null {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.length ? value.map(formatValue).filter(Boolean).join(", ") : null;
+  if (Array.isArray(value))
+    return value.length ? value.map(formatValue).filter(Boolean).join(", ") : null;
   return JSON.stringify(value);
+}
+
+function formatBadgeValue(value: unknown, fallback: string) {
+  const formatted = formatValue(value) ?? fallback;
+  return formatted
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -84,9 +96,21 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
+function MetadataRow({ label, children }: { label: string; children: ReactNode }) {
+  if (children === null || children === undefined || children === "") return null;
+  return (
+    <div className="security-report-metadata-row">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
 function getScannerStatus(props: SecurityScannerPageProps) {
-  if (props.scanner === "virustotal") return props.vtAnalysis?.verdict ?? props.vtAnalysis?.status ?? "pending";
-  if (props.scanner === "openclaw") return props.llmAnalysis?.verdict ?? props.llmAnalysis?.status ?? "pending";
+  if (props.scanner === "virustotal")
+    return props.vtAnalysis?.verdict ?? props.vtAnalysis?.status ?? "pending";
+  if (props.scanner === "openclaw")
+    return props.llmAnalysis?.verdict ?? props.llmAnalysis?.status ?? "pending";
   return props.staticScan?.status ?? "pending";
 }
 
@@ -96,14 +120,145 @@ function getCheckedAt(props: SecurityScannerPageProps) {
   return props.staticScan?.checkedAt ?? null;
 }
 
+function OpenClawSecurityReport(props: SecurityScannerPageProps) {
+  const status = getScannerStatus(props);
+  const statusInfo = getScanStatusInfo(status);
+  const checkedAt = getCheckedAt(props);
+  const sourceRepo = formatValue(
+    props.source?.repository ?? props.source?.repo ?? props.source?.url,
+  );
+  const sourceCommit = formatValue(props.source?.commit ?? props.source?.sha);
+  const riskAnalysis =
+    props.llmAnalysis && hasClawScanRiskReview(props.llmAnalysis) ? props.llmAnalysis : null;
+  const visibleFindingCount =
+    props.llmAnalysis?.agenticRiskFindings?.filter(
+      (finding) => (finding.status === "note" || finding.status === "concern") && finding.evidence,
+    ).length ?? 0;
+
+  return (
+    <main className="section security-report-section">
+      <div className="security-report-shell">
+        <Button asChild variant="ghost" size="sm" className="w-fit">
+          <a href={props.entity.detailPath}>
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            Back to {props.entity.kind}
+          </a>
+        </Button>
+
+        <div className="security-report-layout">
+          <div className="security-report-main">
+            <header className="security-report-header">
+              <div className="security-report-heading">
+                <div className="security-report-badges">
+                  {props.entity.version ? (
+                    <Badge variant="compact">v{props.entity.version}</Badge>
+                  ) : null}
+                </div>
+                <h1>{props.entity.title}</h1>
+                <div className="security-report-verdict-line">
+                  <Badge variant="compact" className={statusInfo.className}>
+                    {statusInfo.label}
+                  </Badge>
+                  <span>ClawScan verdict for this skill. Analyzed {formatTime(checkedAt)}.</span>
+                </div>
+              </div>
+            </header>
+
+            <section className="security-report-analysis" aria-labelledby="analysis-heading">
+              <h2 id="analysis-heading">Analysis</h2>
+              <p>{props.llmAnalysis?.summary ?? "No ClawScan analysis has been recorded yet."}</p>
+              {props.llmAnalysis?.guidance ? (
+                <div className="security-report-analysis-guidance">
+                  <span>Guidance</span>
+                  {props.llmAnalysis.guidance}
+                </div>
+              ) : null}
+            </section>
+
+            {riskAnalysis ? (
+              <section className="security-report-panel" aria-labelledby="agentic-findings-heading">
+                <div className="security-report-panel-header">
+                  <h2 id="agentic-findings-heading">Findings ({visibleFindingCount})</h2>
+                </div>
+                <div className="security-report-panel-body">
+                  <ClawScanRiskReview analysis={riskAnalysis} showTitle={false} />
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <aside className="security-report-sidebar" aria-label="Scan metadata">
+            <h2>Scan Metadata</h2>
+            <dl className="security-report-metadata">
+              <MetadataRow label="Verdict">
+                <Badge variant="compact" className={statusInfo.className}>
+                  {statusInfo.label}
+                </Badge>
+              </MetadataRow>
+              <MetadataRow label="Confidence">
+                <Badge variant="compact">
+                  {formatBadgeValue(props.llmAnalysis?.confidence, "Not reported")}
+                </Badge>
+              </MetadataRow>
+              <MetadataRow label="Analyzed">
+                <span className="security-report-metadata-time">
+                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                  {formatTime(checkedAt)}
+                </span>
+              </MetadataRow>
+              <MetadataRow label="Findings">{visibleFindingCount}</MetadataRow>
+              <MetadataRow label="Version">{props.entity.version ?? "Latest"}</MetadataRow>
+              <MetadataRow label="Source repository">{sourceRepo}</MetadataRow>
+              <MetadataRow label="Source commit">
+                {sourceCommit ? <span className="font-mono text-xs">{sourceCommit}</span> : null}
+              </MetadataRow>
+            </dl>
+          </aside>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function LegacyOpenClawDetails({ analysis }: { analysis?: LlmAnalysis | null }) {
+  return (
+    <>
+      <DetailRow label="Verdict">{analysis?.verdict ?? analysis?.status ?? "Pending"}</DetailRow>
+      <DetailRow label="Confidence">{analysis?.confidence ?? "Not reported"}</DetailRow>
+      <DetailRow label="Model">{analysis?.model ?? "Not reported"}</DetailRow>
+      <DetailRow label="Summary">
+        {analysis?.summary ?? "No ClawScan analysis has been recorded yet."}
+      </DetailRow>
+      <DetailRow label="Guidance">{analysis?.guidance ?? null}</DetailRow>
+      <DetailRow label="Findings">
+        {analysis?.findings ? (
+          <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs">
+            {analysis.findings}
+          </pre>
+        ) : null}
+      </DetailRow>
+    </>
+  );
+}
+
 export function SecurityScannerPage(props: SecurityScannerPageProps) {
   const label = SCANNER_LABELS[props.scanner];
   const status = getScannerStatus(props);
   const statusInfo = getScanStatusInfo(status);
   const checkedAt = getCheckedAt(props);
   const vtUrl = props.sha256hash ? `https://www.virustotal.com/gui/file/${props.sha256hash}` : null;
-  const sourceRepo = formatValue(props.source?.repository ?? props.source?.repo ?? props.source?.url);
+  const sourceRepo = formatValue(
+    props.source?.repository ?? props.source?.repo ?? props.source?.url,
+  );
   const sourceCommit = formatValue(props.source?.commit ?? props.source?.sha);
+
+  if (
+    props.scanner === "openclaw" &&
+    props.entity.kind === "skill" &&
+    hasClawScanRiskReview(props.llmAnalysis)
+  ) {
+    return <OpenClawSecurityReport {...props} />;
+  }
 
   return (
     <main className="section">
@@ -119,7 +274,9 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <Badge>{props.entity.kind === "skill" ? "Skill" : "Plugin"}</Badge>
-                {props.entity.version ? <Badge variant="compact">v{props.entity.version}</Badge> : null}
+                {props.entity.version ? (
+                  <Badge variant="compact">v{props.entity.version}</Badge>
+                ) : null}
               </div>
               <h1 className="m-0 break-words font-display text-3xl font-bold text-[color:var(--ink)]">
                 {label} security
@@ -160,9 +317,15 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                           "No artifact hash recorded."
                         )}
                       </DetailRow>
-                      <DetailRow label="Source">{props.vtAnalysis?.source ?? "File reputation"}</DetailRow>
-                      <DetailRow label="Verdict">{props.vtAnalysis?.verdict ?? props.vtAnalysis?.status ?? "Pending"}</DetailRow>
-                      <DetailRow label="Code Insight">{props.vtAnalysis?.analysis ?? null}</DetailRow>
+                      <DetailRow label="Source">
+                        {props.vtAnalysis?.source ?? "File reputation"}
+                      </DetailRow>
+                      <DetailRow label="Verdict">
+                        {props.vtAnalysis?.verdict ?? props.vtAnalysis?.status ?? "Pending"}
+                      </DetailRow>
+                      <DetailRow label="Code Insight">
+                        {props.vtAnalysis?.analysis ?? null}
+                      </DetailRow>
                       <DetailRow label="External report">
                         {vtUrl ? (
                           <a
@@ -182,26 +345,14 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                   ) : null}
 
                   {props.scanner === "openclaw" ? (
-                    <>
-                      <DetailRow label="Verdict">{props.llmAnalysis?.verdict ?? props.llmAnalysis?.status ?? "Pending"}</DetailRow>
-                      <DetailRow label="Confidence">{props.llmAnalysis?.confidence ?? "Not reported"}</DetailRow>
-                      <DetailRow label="Model">{props.llmAnalysis?.model ?? "Not reported"}</DetailRow>
-                      <DetailRow label="Summary">{props.llmAnalysis?.summary ?? "No ClawScan analysis has been recorded yet."}</DetailRow>
-                      <DetailRow label="Guidance">{props.llmAnalysis?.guidance ?? null}</DetailRow>
-                      <DetailRow label="Findings">
-                        {props.llmAnalysis?.findings ? (
-                          <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs">
-                            {props.llmAnalysis.findings}
-                          </pre>
-                        ) : null}
-                      </DetailRow>
-                    </>
+                    <LegacyOpenClawDetails analysis={props.llmAnalysis} />
                   ) : null}
 
                   {props.scanner === "static-analysis" ? (
                     <>
                       <DetailRow label="Summary">
-                        {props.staticScan?.summary ?? "No static analysis result has been recorded yet."}
+                        {props.staticScan?.summary ??
+                          "No static analysis result has been recorded yet."}
                       </DetailRow>
                       <DetailRow label="Reason codes">
                         {props.staticScan?.reasonCodes?.length ? (
@@ -216,13 +367,17 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                           "None"
                         )}
                       </DetailRow>
-                      <DetailRow label="Engine">{props.staticScan?.engineVersion ?? "Not reported"}</DetailRow>
+                      <DetailRow label="Engine">
+                        {props.staticScan?.engineVersion ?? "Not reported"}
+                      </DetailRow>
                     </>
                   ) : null}
 
                   <DetailRow label="Source repository">{sourceRepo}</DetailRow>
                   <DetailRow label="Source commit">
-                    {sourceCommit ? <span className="font-mono text-xs">{sourceCommit}</span> : null}
+                    {sourceCommit ? (
+                      <span className="font-mono text-xs">{sourceCommit}</span>
+                    ) : null}
                   </DetailRow>
                 </dl>
               </CardContent>
@@ -292,7 +447,11 @@ export function SecurityScannerPage(props: SecurityScannerPageProps) {
                   <DetailRow label="Package">{props.entity.name}</DetailRow>
                   <DetailRow label="Version">{props.entity.version ?? "Latest"}</DetailRow>
                   <DetailRow label="Hash">
-                    {props.sha256hash ? <span className="break-all font-mono text-xs">{props.sha256hash}</span> : "Not recorded"}
+                    {props.sha256hash ? (
+                      <span className="break-all font-mono text-xs">{props.sha256hash}</span>
+                    ) : (
+                      "Not recorded"
+                    )}
                   </DetailRow>
                 </dl>
               </CardContent>
