@@ -62,6 +62,7 @@ const internalRefs = internal as unknown as {
     getReleaseByPackageAndVersionInternal: unknown;
     getReleaseByIdInternal: unknown;
     insertAuditLogInternal: unknown;
+    recordPackageDownloadInternal: unknown;
     requestRescanForApiTokenInternal: unknown;
     softDeletePackageInternal: unknown;
   };
@@ -1689,6 +1690,13 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
       });
     }
     const zip = buildDeterministicPackageZip(entries);
+    try {
+      await runMutationRef(ctx, internalRefs.packages.recordPackageDownloadInternal, {
+        packageId: publicPackage!._id,
+      });
+    } catch {
+      // Best-effort metric path; never fail package downloads.
+    }
     return new Response(new Blob([zip], { type: "application/zip" }), {
       status: 200,
       headers: mergeHeaders(

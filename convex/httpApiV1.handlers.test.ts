@@ -3696,6 +3696,9 @@ describe("httpApiV1 handlers", () => {
       "package/package.json",
     ]);
     expect(zipEntries["_meta.json"]).toBeUndefined();
+    expect(runMutation).toHaveBeenCalledWith(internal.packages.recordPackageDownloadInternal, {
+      packageId: "packages:1",
+    });
   });
 
   it("package download fails when any stored file is missing", async () => {

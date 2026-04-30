@@ -1589,6 +1589,22 @@ export const getPackageByNameInternal = internalQuery({
   },
 });
 
+export const recordPackageDownloadInternal = internalMutation({
+  args: { packageId: v.id("packages") },
+  handler: async (ctx, args) => {
+    const pkg = await ctx.db.get(args.packageId);
+    if (!pkg) return;
+    await ctx.db.patch(pkg._id, {
+      stats: {
+        downloads: (pkg.stats?.downloads ?? 0) + 1,
+        installs: pkg.stats?.installs ?? 0,
+        stars: pkg.stats?.stars ?? 0,
+        versions: pkg.stats?.versions ?? 0,
+      },
+    });
+  },
+});
+
 export const getTrustedPublisherByPackageIdInternal = internalQuery({
   args: { packageId: v.id("packages") },
   handler: async (ctx, args) => {
