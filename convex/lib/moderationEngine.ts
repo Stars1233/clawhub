@@ -113,6 +113,12 @@ const SHELL_BASE64_FILE_READ_PATTERN =
   /(?:\bcat\s+["']?\$[A-Za-z_][A-Za-z0-9_]*["']?\s*\|\s*base64\b|\bbase64\b[^\n]{0,80}["']?\$[A-Za-z_][A-Za-z0-9_]*["']?)/i;
 const SHELL_NETWORK_UPLOAD_PATTERN =
   /\bcurl\b[\s\S]{0,1600}(?:--data(?:-binary|-raw)?\b|-d\b|--form\b|-F\b|--upload-file\b|Authorization\s*:)/i;
+const PLAYWRIGHT_CHROMIUM_PATTERN = /\b(?:playwright\.)?chromium\.launch\s*\(/i;
+const FILE_URL_BROWSER_NAVIGATION_PATTERN = /\bpage\.goto\s*\([^)]*file:\/\//i;
+const SVG_HTML_INTERPOLATION_PATTERN =
+  /(?:<body>[\s\S]{0,240}\$\{[^}]*svg[^}]*\}|writeFile(?:Sync)?\s*\([^)]*\.html[^)]*\$\{[^}]*svg[^}]*\}|\$\{[^}]*svg[^}]*\}[\s\S]{0,240}<\/body>)/i;
+const BROWSER_JS_DISABLED_PATTERN =
+  /javaScriptEnabled\s*:\s*false|Content-Security-Policy|script-src\s+['"]?none/i;
 
 function hasMaliciousInstallPrompt(content: string) {
   const hasTerminalInstruction =
@@ -415,6 +421,14 @@ function findShellBase64FileUpload(content: string) {
   return findFirstLine(content, SHELL_BASE64_FILE_READ_PATTERN);
 }
 
+function findUnsafeBrowserFileRender(content: string) {
+  if (!PLAYWRIGHT_CHROMIUM_PATTERN.test(content)) return null;
+  if (!FILE_URL_BROWSER_NAVIGATION_PATTERN.test(content)) return null;
+  if (!SVG_HTML_INTERPOLATION_PATTERN.test(content)) return null;
+  if (BROWSER_JS_DISABLED_PATTERN.test(content)) return null;
+  return findFirstLine(content, FILE_URL_BROWSER_NAVIGATION_PATTERN);
+}
+
 function normalizeEnvName(value: unknown) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -560,6 +574,19 @@ function scanCodeFile(
       line: hostPlatformSourcePatch.line,
       message: "Install code patches host platform source and rebuilds without confirmation.",
       evidence: hostPlatformSourcePatch.text,
+    });
+  }
+
+  const unsafeBrowserFileRender = findUnsafeBrowserFileRender(content);
+  if (unsafeBrowserFileRender) {
+    addFinding(findings, {
+      code: REASON_CODES.BROWSER_FILE_RENDER,
+      severity: "critical",
+      file: path,
+      line: unsafeBrowserFileRender.line,
+      message:
+        "Browser automation renders interpolated SVG/HTML from a file URL with JavaScript enabled.",
+      evidence: unsafeBrowserFileRender.text,
     });
   }
 

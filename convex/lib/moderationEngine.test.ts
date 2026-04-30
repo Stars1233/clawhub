@@ -393,6 +393,60 @@ describe("moderationEngine", () => {
     expect(result.status).toBe("suspicious");
   });
 
+  it("flags Playwright file URL renders of interpolated SVG", () => {
+    const result = runStaticModerationScan({
+      slug: "office-quotes",
+      displayName: "Office Quotes",
+      summary: "Render quote cards",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "scripts/office-quotes.js", size: 512 }],
+      fileContents: [
+        {
+          path: "scripts/office-quotes.js",
+          content: [
+            "const svgContent = await fetchSvgFromApi();",
+            "const html = `<html><body>${svgContent}</body></html>`;",
+            "fs.writeFileSync(htmlPath, html);",
+            "const browser = await playwright.chromium.launch();",
+            "const page = await browser.newPage();",
+            "await page.goto('file://' + htmlPath);",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).toContain("suspicious.browser_file_render");
+    expect(result.status).toBe("suspicious");
+  });
+
+  it("does not flag Playwright file renders with JavaScript disabled", () => {
+    const result = runStaticModerationScan({
+      slug: "svg-renderer",
+      displayName: "SVG Renderer",
+      summary: "Render local SVG safely",
+      frontmatter: {},
+      metadata: {},
+      files: [{ path: "scripts/render.js", size: 512 }],
+      fileContents: [
+        {
+          path: "scripts/render.js",
+          content: [
+            "const svgContent = sanitizeSvg(input);",
+            "const html = `<html><body>${svgContent}</body></html>`;",
+            "fs.writeFileSync(htmlPath, html);",
+            "const browser = await playwright.chromium.launch();",
+            "const page = await browser.newPage({ javaScriptEnabled: false });",
+            "await page.goto('file://' + htmlPath);",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(result.reasonCodes).not.toContain("suspicious.browser_file_render");
+    expect(result.status).toBe("clean");
+  });
+
   it("does not flag declared env vars sent to the intended API", () => {
     const result = runStaticModerationScan({
       slug: "todoist",
