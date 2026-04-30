@@ -29,6 +29,12 @@ export const rules = [
       "Skills should be published through ClawHub, not added directly to this repo. Use the ClawHub CLI or web upload flow so the package goes through normal validation, scanning, and ownership checks.",
   },
   {
+    label: "r: third-party-skill-issue",
+    close: true,
+    message:
+      "Thanks for reporting this. This looks specific to a third-party skill's behavior, content, or maintenance, which is controlled by the skill publisher rather than ClawHub. Please contact the publisher, fork/copy the skill and adapt it for your own use, or publish a fixed version through ClawHub.",
+  },
+  {
     label: "r: too-many-prs",
     close: true,
     message:
@@ -53,6 +59,10 @@ export const managedLabelSpecs = {
   "r: direct-skill-content": {
     color: "D93F0B",
     description: "Auto-close: skill content must be published through ClawHub, not PR'd.",
+  },
+  "r: third-party-skill-issue": {
+    color: "D93F0B",
+    description: "Auto-close: issue belongs to the third-party skill publisher or a user fork.",
   },
   [RESCAN_GUIDANCE_LABEL]: {
     color: "BFDADC",

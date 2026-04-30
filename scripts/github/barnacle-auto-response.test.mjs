@@ -163,6 +163,7 @@ describe("barnacle-auto-response", () => {
   it("keeps Barnacle-owned labels documented for ClawHub", () => {
     expect(managedLabelSpecs["r: support"].description).toContain("support requests");
     expect(managedLabelSpecs["r: direct-skill-content"].description).toContain("published");
+    expect(managedLabelSpecs["r: third-party-skill-issue"].description).toContain("publisher");
     expect(managedLabelSpecs["r: paid-skill"].description).toContain("paid skills");
 
     for (const label of Object.values(candidateLabels)) {
@@ -347,6 +348,43 @@ describe("barnacle-auto-response", () => {
       expect.objectContaining({
         issue_number: 456,
         body: expect.stringContaining("community support server"),
+      }),
+    );
+    expect(calls.update).toContainEqual(
+      expect.objectContaining({
+        issue_number: 456,
+        state: "closed",
+        state_reason: "not_planned",
+      }),
+    );
+  });
+
+  it("closes third-party skill issues when maintainers apply the manual label", async () => {
+    const { calls, github } = barnacleGithub([]);
+
+    await runBarnacleAutoResponse({
+      github,
+      context: barnacleIssueContext(
+        {
+          title: "CamelCamelCamel Alerts Skill",
+          body: "This published skill still needs publisher-side cleanup.",
+        },
+        ["r: third-party-skill-issue"],
+        {
+          action: "labeled",
+          label: { name: "r: third-party-skill-issue" },
+          sender: { login: "maintainer", type: "User" },
+        },
+      ),
+      core: {
+        info: () => undefined,
+      },
+    });
+
+    expect(calls.createComment).toContainEqual(
+      expect.objectContaining({
+        issue_number: 456,
+        body: expect.stringContaining("third-party skill"),
       }),
     );
     expect(calls.update).toContainEqual(
