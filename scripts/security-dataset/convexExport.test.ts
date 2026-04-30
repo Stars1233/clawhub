@@ -1,3 +1,4 @@
+/* @vitest-environment node */
 import { writeFile } from "node:fs/promises";
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
