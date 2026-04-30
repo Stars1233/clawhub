@@ -6,7 +6,6 @@ import type {
 	ExportFileInput,
 	LlmAnalysisInput,
 	ModerationConsensusInput,
-	SourceKind,
 	StaticScanInput,
 	VtAnalysisInput,
 } from "./normalize";

@@ -160,10 +160,8 @@ function filterExportInputs(
 ) {
 	return inputs.filter((input) => {
 		if (sourceKind !== "all" && input.sourceKind !== sourceKind) return false;
-		if (timeWindow.createdAtGte !== undefined && input.createdAt < timeWindow.createdAtGte)
-			return false;
-		if (timeWindow.createdAtLt !== undefined && input.createdAt >= timeWindow.createdAtLt)
-			return false;
+		if (timeWindow.createdAtGte !== null && input.createdAt < timeWindow.createdAtGte) return false;
+		if (timeWindow.createdAtLt !== null && input.createdAt >= timeWindow.createdAtLt) return false;
 		return true;
 	});
 }

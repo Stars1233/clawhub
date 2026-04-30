@@ -12,8 +12,11 @@ const SOURCE_TABLES = ["skillVersions", "packageReleases"] as const;
 const SCANNER_SOURCES = ["static", "virustotal", "llm", "moderation_consensus"] as const;
 type StoredVtAnalysis = Doc<"skillVersions">["vtAnalysis"];
 type StoredLlmAnalysis = Doc<"skillVersions">["llmAnalysis"];
+type ArtifactExportRow =
+	| Awaited<ReturnType<typeof skillVersionPageToExportRows>>[number]
+	| Awaited<ReturnType<typeof packageReleasePageToExportRows>>[number];
 type ArtifactExportPage = {
-	page: Awaited<ReturnType<typeof skillVersionPageToExportRows>>;
+	page: ArtifactExportRow[];
 	isDone: boolean;
 	continueCursor: string;
 	exportMode: "public";
