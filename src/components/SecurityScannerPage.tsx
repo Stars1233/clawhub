@@ -132,8 +132,7 @@ function OpenClawSecurityReport(props: SecurityScannerPageProps) {
     props.llmAnalysis && hasClawScanRiskReview(props.llmAnalysis) ? props.llmAnalysis : null;
   const visibleFindingCount =
     props.llmAnalysis?.agenticRiskFindings?.filter(
-      (finding) =>
-        (finding.status === "note" || finding.status === "concern") && finding.evidence,
+      (finding) => (finding.status === "note" || finding.status === "concern") && finding.evidence,
     ).length ?? 0;
 
   return (
@@ -160,19 +159,14 @@ function OpenClawSecurityReport(props: SecurityScannerPageProps) {
                   <Badge variant="compact" className={statusInfo.className}>
                     {statusInfo.label}
                   </Badge>
-                  <span>
-                    ClawScan verdict for this skill. Analyzed{" "}
-                    {formatTime(checkedAt)}.
-                  </span>
+                  <span>ClawScan verdict for this skill. Analyzed {formatTime(checkedAt)}.</span>
                 </div>
               </div>
             </header>
 
             <section className="security-report-analysis" aria-labelledby="analysis-heading">
               <h2 id="analysis-heading">Analysis</h2>
-              <p>
-                {props.llmAnalysis?.summary ?? "No ClawScan analysis has been recorded yet."}
-              </p>
+              <p>{props.llmAnalysis?.summary ?? "No ClawScan analysis has been recorded yet."}</p>
               {props.llmAnalysis?.guidance ? (
                 <div className="security-report-analysis-guidance">
                   <span>Guidance</span>

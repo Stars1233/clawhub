@@ -210,7 +210,10 @@ export function hasClawScanRiskReview(analysis?: LlmAnalysis | null) {
 
 function RiskStatusBadge({ status, severity }: { status: AgenticRiskStatus; severity?: string }) {
   return (
-    <Badge variant="compact" className={`agentic-risk-chip ${getRiskStatusClass(status, severity)}`}>
+    <Badge
+      variant="compact"
+      className={`agentic-risk-chip ${getRiskStatusClass(status, severity)}`}
+    >
       <span className="agentic-risk-chip-key">Status</span>
       {AGENTIC_RISK_STATUS_LABELS[status] ?? status}
     </Badge>
