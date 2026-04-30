@@ -90,10 +90,10 @@ Stores your API token + cached registry URL.
 
 ### `explore`
 
-- Lists latest updated skills via `/api/v1/skills?limit=...` (sorted by `updatedAt` desc).
+- Lists newest skills via `/api/v1/skills?limit=...&sort=createdAt` (sorted by `createdAt` desc).
 - Flags:
   - `--limit <n>` (1-200, default: 25)
-  - `--sort newest|downloads|rating|installs|installsAllTime|trending` (default: newest)
+  - `--sort newest|updated|downloads|rating|installs|installsAllTime|trending` (default: newest)
   - `--json` (machine-readable output)
 - Output: `<slug>  v<version>  <age>  <summary>` (summary truncated to 50 chars).
 

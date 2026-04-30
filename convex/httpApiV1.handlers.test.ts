@@ -724,6 +724,9 @@ describe("httpApiV1 handlers", () => {
 
   it("lists skills supports sort aliases", async () => {
     const checks: Array<[string, string | null]> = [
+      ["createdAt", "newest"],
+      ["created-at", "newest"],
+      ["newest", "newest"],
       ["rating", "stars"],
       ["installs", "installs"],
       ["installs-all-time", "installs"],

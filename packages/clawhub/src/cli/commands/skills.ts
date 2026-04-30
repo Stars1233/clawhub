@@ -375,6 +375,7 @@ export async function cmdUninstall(
 
 type ExploreSort = "newest" | "downloads" | "rating" | "installs" | "installsAllTime" | "trending";
 type ApiExploreSort =
+  | "createdAt"
   | "updated"
   | "downloads"
   | "stars"
@@ -462,7 +463,15 @@ function truncate(str: string, maxLen: number): string {
 
 function resolveExploreSort(raw?: string): { sort: ExploreSort; apiSort: ApiExploreSort } {
   const normalized = raw?.trim().toLowerCase();
-  if (!normalized || normalized === "newest" || normalized === "updated") {
+  if (
+    !normalized ||
+    normalized === "newest" ||
+    normalized === "createdat" ||
+    normalized === "created-at"
+  ) {
+    return { sort: "newest", apiSort: "createdAt" };
+  }
+  if (normalized === "updated") {
     return { sort: "newest", apiSort: "updated" };
   }
   if (normalized === "downloads" || normalized === "download") {
@@ -487,7 +496,7 @@ function resolveExploreSort(raw?: string): { sort: ExploreSort; apiSort: ApiExpl
     return { sort: "trending", apiSort: "trending" };
   }
   return fail(
-    `Invalid sort "${raw}". Use newest, downloads, rating, installs, installsAllTime, or trending.`,
+    `Invalid sort "${raw}". Use newest, updated, downloads, rating, installs, installsAllTime, or trending.`,
   );
 }
 

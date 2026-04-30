@@ -205,13 +205,16 @@ describe("cmdExplore", () => {
   it("supports all-time installs and trending sorts", async () => {
     mockApiRequest.mockResolvedValue({ items: [], nextCursor: null });
 
+    await cmdExplore(makeOpts(), { limit: 5, sort: "newest" });
     await cmdExplore(makeOpts(), { limit: 5, sort: "installsAllTime" });
     await cmdExplore(makeOpts(), { limit: 5, sort: "trending" });
 
     const first = new URL(String(mockApiRequest.mock.calls[0]?.[1]?.url));
     const second = new URL(String(mockApiRequest.mock.calls[1]?.[1]?.url));
-    expect(first.searchParams.get("sort")).toBe("installsAllTime");
-    expect(second.searchParams.get("sort")).toBe("trending");
+    const third = new URL(String(mockApiRequest.mock.calls[2]?.[1]?.url));
+    expect(first.searchParams.get("sort")).toBe("createdAt");
+    expect(second.searchParams.get("sort")).toBe("installsAllTime");
+    expect(third.searchParams.get("sort")).toBe("trending");
   });
 });
 

@@ -75,7 +75,7 @@ Public read:
   - Optional filters: `highlightedOnly=true`, `nonSuspiciousOnly=true`
   - Legacy alias: `nonSuspicious=true`
 - `GET /api/v1/skills?limit=&cursor=&sort=`
-  - `sort`: `updated` (default), `downloads`, `stars` (`rating`), `installsCurrent` (`installs`), `installsAllTime`, `trending`
+  - `sort`: `updated` (default), `createdAt` (`newest`), `downloads`, `stars` (`rating`), `installsCurrent` (`installs`), `installsAllTime`, `trending`
   - `cursor` applies to non-`trending` sorts
   - Optional filter: `nonSuspiciousOnly=true`
   - Legacy alias: `nonSuspicious=true`
