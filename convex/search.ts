@@ -53,6 +53,7 @@ const NAME_EXACT_BOOST = 1.1;
 const NAME_PREFIX_BOOST = 0.6;
 const POPULARITY_WEIGHT = 0.08;
 const FALLBACK_SCAN_LIMIT = 2000;
+const MIN_STABLE_SEARCH_RECALL_LIMIT = 100;
 const SKILL_CAPABILITY_TAG_SET = new Set<string>(SKILL_CAPABILITY_TAGS);
 
 function getNextCandidateLimit(current: number, max: number) {
@@ -168,11 +169,14 @@ export const searchSkills: ReturnType<typeof action> = action({
       vector = null;
     }
     const limit = args.limit ?? 10;
+    // Keep ordinary first-page and load-more requests ranking the same recall pool
+    // before slicing, so expanding the display limit does not reshuffle the prefix.
+    const recallLimit = Math.max(limit, MIN_STABLE_SEARCH_RECALL_LIMIT);
     // Convex vectorSearch max limit is 256; clamp candidate sizes accordingly.
     // Keep the initial pool large enough to catch moderate-vector matches
     // that win after lexical and popularity scoring, even for small limits.
-    const maxCandidate = Math.min(Math.max(limit * 10, 200), 256);
-    let candidateLimit = Math.min(Math.max(limit * 3, 200), 256);
+    const maxCandidate = Math.min(Math.max(recallLimit * 10, 200), 256);
+    let candidateLimit = Math.min(Math.max(recallLimit * 3, 200), 256);
     let hydrated: SkillSearchEntry[] = [];
     const seenEmbeddingIds = new Set<Id<"skillEmbeddings">>();
     let scoreById = new Map<Id<"skillEmbeddings">, number>();
@@ -220,7 +224,7 @@ export const searchSkills: ReturnType<typeof action> = action({
           ]),
         );
 
-        if (exactMatches.length >= limit || results.length < candidateLimit) {
+        if (exactMatches.length >= recallLimit || results.length < candidateLimit) {
           break;
         }
 
@@ -235,12 +239,12 @@ export const searchSkills: ReturnType<typeof action> = action({
       : exactMatches;
 
     const fallbackMatches =
-      primaryMatches.length >= limit
+      primaryMatches.length >= recallLimit
         ? []
         : ((await ctx.runQuery(internal.search.lexicalFallbackSkills, {
             query,
             queryTokens,
-            limit: Math.min(Math.max(limit * 4, 200), FALLBACK_SCAN_LIMIT),
+            limit: Math.min(Math.max(recallLimit * 4, 200), FALLBACK_SCAN_LIMIT),
             highlightedOnly: args.highlightedOnly,
             nonSuspiciousOnly: args.nonSuspiciousOnly,
             capabilityTag: args.capabilityTag,
