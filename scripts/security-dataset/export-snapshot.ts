@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { parseConvexJson } from "./convexOutput";
 import {
 	normalizeArtifactExport,
 	type ArtifactExportInput,
@@ -108,20 +109,6 @@ function runConvexPage(
 		process.exit(result.status ?? 1);
 	}
 	return parseConvexJson(result.stdout) as ConvexPage;
-}
-
-function parseConvexJson(output: string) {
-	const lines = output.split(/\r?\n/);
-	for (let index = 0; index < lines.length; index += 1) {
-		const trimmed = lines[index]?.trimStart() ?? "";
-		if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) continue;
-		try {
-			return JSON.parse(lines.slice(index).join("\n"));
-		} catch {
-			continue;
-		}
-	}
-	throw new Error(`Unable to parse Convex JSON output:\n${output}`);
 }
 
 function buildManifest(input: {
