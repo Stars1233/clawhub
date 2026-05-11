@@ -3956,21 +3956,105 @@ export const listPublicPageV3 = query({
   },
 });
 
-function encodeIndexKey(key: IndexKey): string {
-  return JSON.stringify(key.map((val) => (val === undefined ? { __undef: 1 } : val)));
+type PublicListSort = keyof typeof SORT_INDEXES;
+
+const SORT_INDEX_FIELD_COUNTS: Record<PublicListSort, number> = {
+  newest: 2,
+  updated: 2,
+  name: 2,
+  downloads: 3,
+  stars: 3,
+  installs: 3,
+};
+
+const NONSUSPICIOUS_SORT_INDEX_FIELD_COUNTS: Record<PublicListSort, number> = {
+  newest: 3,
+  updated: 3,
+  name: 3,
+  downloads: 4,
+  stars: 4,
+  installs: 4,
+};
+
+function encodeIndexKeyValue(val: Value | undefined): Value {
+  return val === undefined ? { __undef: 1 } : val;
 }
-function decodeIndexKey(cursor: string): IndexKey | null {
+
+function decodeIndexKeyValue(val: unknown): Value | undefined {
+  if (val !== null && typeof val === "object" && "__undef" in (val as Record<string, unknown>)) {
+    return undefined;
+  }
+  return val as Value;
+}
+
+function encodeIndexKey(indexName: string, key: IndexKey): string {
+  return JSON.stringify({
+    v: 1,
+    index: indexName,
+    key: key.map(encodeIndexKeyValue),
+  });
+}
+
+function indexKeyStartsWithPrefix(key: IndexKey, prefix: IndexKey): boolean {
+  if (key.length < prefix.length) return false;
+  return prefix.every((value, index) => key[index] === value);
+}
+
+function decodePublicListCursor({
+  cursor,
+  indexName,
+  maxIndexKeyLength,
+  eqPrefix,
+}: {
+  cursor?: string;
+  indexName: string;
+  maxIndexKeyLength: number;
+  eqPrefix: IndexKey;
+}): IndexKey | null {
+  if (!cursor) return null;
   try {
-    const arr = JSON.parse(cursor) as unknown[];
+    const parsed = JSON.parse(cursor) as unknown;
+    const arr = Array.isArray(parsed)
+      ? parsed
+      : parsed !== null &&
+          typeof parsed === "object" &&
+          (parsed as { v?: unknown }).v === 1 &&
+          (parsed as { index?: unknown }).index === indexName &&
+          Array.isArray((parsed as { key?: unknown }).key)
+        ? (parsed as { key: unknown[] }).key
+        : null;
     if (!Array.isArray(arr)) return null;
-    return arr.map((val) =>
-      val !== null && typeof val === "object" && "__undef" in (val as Record<string, unknown>)
-        ? undefined
-        : (val as Value),
-    );
+    const key = arr.map(decodeIndexKeyValue);
+    if (key.length > maxIndexKeyLength) return null;
+    if (!indexKeyStartsWithPrefix(key, eqPrefix)) return null;
+    return key;
   } catch {
     return null;
   }
+}
+
+function getPublicListCursorKey({
+  cursor,
+  sort,
+  nonSuspiciousOnly,
+  indexName,
+  eqPrefix,
+}: {
+  cursor?: string;
+  sort: PublicListSort;
+  nonSuspiciousOnly: boolean;
+  indexName: string;
+  eqPrefix: IndexKey;
+}): IndexKey | null {
+  const fieldCounts = nonSuspiciousOnly
+    ? NONSUSPICIOUS_SORT_INDEX_FIELD_COUNTS
+    : SORT_INDEX_FIELD_COUNTS;
+  return decodePublicListCursor({
+    cursor,
+    indexName,
+    maxIndexKeyLength: fieldCounts[sort],
+    eqPrefix,
+  });
 }
 
 /**
@@ -4026,7 +4110,13 @@ export const listPublicPageV4 = query({
     // Without this, getPage walks the entire index including soft-deleted items.
     const eqPrefix: IndexKey = args.nonSuspiciousOnly ? [undefined, false] : [undefined];
 
-    const decodedCursor = args.cursor ? decodeIndexKey(args.cursor) : null;
+    const decodedCursor = getPublicListCursorKey({
+      cursor: args.cursor,
+      sort,
+      nonSuspiciousOnly: args.nonSuspiciousOnly ?? false,
+      indexName,
+      eqPrefix,
+    });
     const isFirstPage = !decodedCursor;
     const startIndexKey: IndexKey = decodedCursor ?? eqPrefix;
 
@@ -4048,7 +4138,7 @@ export const listPublicPageV4 = query({
         .filter((item): item is PublicSkillEntry => item !== null);
       let nextCursor: string | null = null;
       if (result.hasMore && result.indexKeys.length > 0) {
-        nextCursor = encodeIndexKey(result.indexKeys[result.indexKeys.length - 1]);
+        nextCursor = encodeIndexKey(indexName, result.indexKeys[result.indexKeys.length - 1]);
       }
 
       return { page: items, hasMore: result.hasMore, nextCursor };
@@ -4094,7 +4184,7 @@ export const listPublicPageV4 = query({
         }
         if (items.length >= numItems) {
           hasMore = result.hasMore || index < result.page.length - 1;
-          nextCursor = hasMore ? encodeIndexKey(cursor) : null;
+          nextCursor = hasMore ? encodeIndexKey(indexName, cursor) : null;
           return { page: items, hasMore, nextCursor };
         }
       }
@@ -4108,7 +4198,7 @@ export const listPublicPageV4 = query({
       scanCursor = result.indexKeys[result.indexKeys.length - 1];
       scanInclusive = false;
       hasMore = true;
-      nextCursor = encodeIndexKey(scanCursor);
+      nextCursor = encodeIndexKey(indexName, scanCursor);
     }
 
     // Guard: never signal more pages when the scan budget is exhausted
@@ -4229,7 +4319,13 @@ export const listPublicApiPageV1 = query({
       ? NONSUSPICIOUS_SORT_INDEXES[sort]
       : SORT_INDEXES[sort];
     const eqPrefix: IndexKey = args.nonSuspiciousOnly ? [undefined, false] : [undefined];
-    const decodedCursor = args.cursor ? decodeIndexKey(args.cursor) : null;
+    const decodedCursor = getPublicListCursorKey({
+      cursor: args.cursor,
+      sort,
+      nonSuspiciousOnly: args.nonSuspiciousOnly ?? false,
+      indexName,
+      eqPrefix,
+    });
     const isFirstPage = !decodedCursor;
     const result = await getPage(ctx, {
       table: "skillSearchDigest",
@@ -4247,7 +4343,7 @@ export const listPublicApiPageV1 = query({
       .filter((item): item is NonNullable<typeof item> => item !== null);
     const nextCursor =
       result.hasMore && result.indexKeys.length > 0
-        ? encodeIndexKey(result.indexKeys[result.indexKeys.length - 1])
+        ? encodeIndexKey(indexName, result.indexKeys[result.indexKeys.length - 1])
         : null;
     return { items, nextCursor };
   },

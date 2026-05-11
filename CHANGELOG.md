@@ -32,6 +32,7 @@
 - Web: restore dashboard skill metrics for owned skills and use pointer cursors on dropdown menu items (#2113) (thanks @fuller-stack-dev).
 - Packages: count package install stat events separately from package downloads and record npm tarball fetches as installs (#1712).
 - Web: show the skills browse `Hide suspicious` control only when the loaded results include suspicious skills (thanks @vyctorbrzezowski).
+- Web/API: ignore stale public skill-list cursors from older sort or safety-filter indexes instead of throwing pagination errors.
 - Skills: allow confirmed owner migration when republishing an existing skill to another publisher, preserving versions, stats, aliases, and audit history (#1998, #2102) (thanks @momothemage).
 - Security: block owner delete/undelete paths from overriding moderator or scanner hides, and return explicit 403 authz responses for owner restore denials (#2078) (thanks @momothemage).
 - Search/Web: disclose when `/search` is hiding suspicious skills and add an explicit opt-out so unified search no longer silently differs from `/skills` for the same query (#2079) (thanks @momothemage).
