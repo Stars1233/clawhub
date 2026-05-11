@@ -1517,8 +1517,9 @@ describe("skills anti-spam guards", () => {
       "skills:1",
       expect.objectContaining({
         moderationStatus: "active",
-        moderationReason: "scanner.llm.clean",
-        moderationFlags: undefined,
+        moderationReason: "scanner.llm.review",
+        moderationFlags: ["flagged.review"],
+        isSuspicious: false,
       }),
     );
   });

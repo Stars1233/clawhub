@@ -80,8 +80,9 @@ See also: [acceptable-usage.md](./acceptable-usage.md) for the marketplace polic
   an aggregate suspicious verdict or public package scan status without VT/LLM
   corroboration. Static malicious findings still block immediately.
 - ClawScan LLM verdicts treat purpose-aligned notes as user guidance, not a
-  suspicious verdict. A suspicious LLM verdict must include at least one
-  structured material concern or a compounding concern pattern.
+  suspicious verdict. Medium-only material concerns are visible
+  `flagged.review` guidance and must not set `isSuspicious`; high or critical
+  concerns remain `flagged.suspicious` and are hidden by the suspicious filter.
 - Operators can schedule targeted LLM rescans for suspicious skills by bucket
   (`all`, `llm-only`, `vt-only`, `both`) and for suspicious plugin releases.
 - Package/plugin scan backfills now also recompute deterministic static scan results for older releases,
@@ -99,7 +100,13 @@ See also: [acceptable-usage.md](./acceptable-usage.md) for the marketplace polic
   - `moderationEvidence[]`: capped file/line evidence for static findings
   - `moderationSummary`, engine version, evaluation timestamp, source version id
 - Structured moderation is rebuilt from current signals instead of appending stale scanner codes.
-- Legacy moderation flags remain in sync for existing public visibility and suspicious-skill filtering.
+- Legacy moderation flags remain in sync for existing public visibility and suspicious-skill filtering:
+  - `flagged.review`: visible review guidance, not hidden by default.
+  - `flagged.suspicious`: hidden by the suspicious filter.
+  - `blocked.malware`: hidden/blocked malicious state.
+- Operators can force-rebuild skill moderation from the latest version to clear stale aggregate rows
+  after ClawScan policy changes. Conservative cleanup may soft-hide exact test/placeholder
+  suspicious skills, but broad duplicate-looking families require separate human review.
 - Static scan evidence must identify a concrete risky source/sink, not just adjacent primitives:
   - declared provider credentials and declared provider base URLs are not credential-harvest findings by themselves.
   - user-directed provider uploads are not exfiltration unless the source is broad/private/sensitive, automatic, or sent to an unrelated/hidden destination.

@@ -15,6 +15,7 @@ export type ModerationFinding = {
 export const MODERATION_ENGINE_VERSION = "v2.4.24";
 
 export const REASON_CODES = {
+  LLM_REVIEW: "review.llm_review",
   DANGEROUS_EXEC: "suspicious.dangerous_exec",
   DYNAMIC_CODE: "suspicious.dynamic_code_execution",
   GENERATED_SOURCE_TEMPLATE: "suspicious.generated_source_template_injection",
@@ -68,6 +69,7 @@ export function summarizeReasonCodes(codes: string[]) {
   if (codes.length === 0) return "No suspicious patterns detected.";
   const top = codes.slice(0, 3).join(", ");
   const extra = codes.length > 3 ? ` (+${codes.length - 3} more)` : "";
+  if (codes.every((code) => code.startsWith("review."))) return `Review: ${top}${extra}`;
   return `Detected: ${top}${extra}`;
 }
 
@@ -76,7 +78,7 @@ export function verdictFromCodes(codes: string[]): ScannerModerationVerdict {
   if (normalized.some((code) => MALICIOUS_CODES.has(code) || code.startsWith("malicious."))) {
     return "malicious";
   }
-  if (normalized.length > 0) return "suspicious";
+  if (normalized.some((code) => code.startsWith("suspicious."))) return "suspicious";
   return "clean";
 }
 

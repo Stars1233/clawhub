@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSkillSuspicious } from "./skillSafety";
+import { isSkillReviewFlagged, isSkillSuspicious } from "./skillSafety";
 
 describe("isSkillSuspicious", () => {
   it("returns true when suspicious flag is present", () => {
@@ -27,5 +27,15 @@ describe("isSkillSuspicious", () => {
         moderationReason: "scanner.vt.clean",
       }),
     ).toBe(false);
+  });
+
+  it("keeps review flags out of the hidden suspicious bucket", () => {
+    const skill = {
+      moderationFlags: ["flagged.review"],
+      moderationReason: "scanner.llm.review",
+    };
+
+    expect(isSkillSuspicious(skill)).toBe(false);
+    expect(isSkillReviewFlagged(skill)).toBe(true);
   });
 });

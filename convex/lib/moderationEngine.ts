@@ -29,6 +29,22 @@ type VirusTotalAnalysis = {
   };
 };
 
+type LlmRiskFinding = {
+  status?: string;
+  severity?: string;
+};
+
+type LlmRiskSummaryBucket = {
+  status?: string;
+  highestSeverity?: string;
+};
+
+type LlmAnalysis = {
+  status?: string;
+  agenticRiskFindings?: LlmRiskFinding[];
+  riskSummary?: Record<string, LlmRiskSummaryBucket | undefined>;
+};
+
 export type StaticScanInput = {
   slug: string;
   displayName: string;
@@ -1303,6 +1319,52 @@ function addScannerStatusReason(
   }
 }
 
+function normalizedSeverityRank(severity: string | undefined) {
+  switch (severity?.trim().toLowerCase()) {
+    case "critical":
+      return 5;
+    case "high":
+      return 4;
+    case "medium":
+      return 3;
+    case "low":
+      return 2;
+    case "info":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function highestLlmConcernSeverityRank(analysis: LlmAnalysis | undefined) {
+  let rank = 0;
+  for (const finding of analysis?.agenticRiskFindings ?? []) {
+    if (finding.status !== "concern") continue;
+    rank = Math.max(rank, normalizedSeverityRank(finding.severity));
+  }
+  for (const bucket of Object.values(analysis?.riskSummary ?? {})) {
+    if (bucket?.status !== "concern") continue;
+    rank = Math.max(rank, normalizedSeverityRank(bucket.highestSeverity));
+  }
+  return rank;
+}
+
+function addLlmStatusReason(reasonCodes: string[], status?: string, analysis?: LlmAnalysis) {
+  const normalized = status?.trim().toLowerCase();
+  if (normalized === "malicious") {
+    reasonCodes.push("malicious.llm_malicious");
+    return;
+  }
+  if (normalized !== "suspicious") return;
+
+  const concernRank = highestLlmConcernSeverityRank(analysis);
+  if (concernRank >= normalizedSeverityRank("high")) {
+    reasonCodes.push("suspicious.llm_suspicious");
+  } else {
+    reasonCodes.push(REASON_CODES.LLM_REVIEW);
+  }
+}
+
 export function runStaticModerationScan(input: StaticScanInput): StaticScanResult {
   const findings: ModerationFinding[] = [];
   const files = [...input.fileContents].sort((a, b) => a.path.localeCompare(b.path));
@@ -1405,6 +1467,7 @@ export function buildModerationSnapshot(params: {
   vtAnalysis?: VirusTotalAnalysis;
   vtStatus?: string;
   llmStatus?: string;
+  llmAnalysis?: LlmAnalysis;
   sourceVersionId?: Id<"skillVersions">;
 }): ModerationSnapshot {
   const staticCodes = (params.staticScan?.reasonCodes ?? []).filter((code) =>
@@ -1421,7 +1484,7 @@ export function buildModerationSnapshot(params: {
       llmStatus: params.llmStatus,
     }),
   });
-  addScannerStatusReason(reasonCodes, "llm", params.llmStatus);
+  addLlmStatusReason(reasonCodes, params.llmStatus, params.llmAnalysis);
 
   const normalizedCodes = normalizeReasonCodes(reasonCodes);
   const verdict = verdictFromCodes(normalizedCodes);
@@ -1461,6 +1524,8 @@ export function resolveSkillVerdict(
   if ((skill.moderationReasonCodes ?? []).some((code) => code.startsWith("malicious."))) {
     return "malicious";
   }
-  if ((skill.moderationReasonCodes ?? []).length > 0) return "suspicious";
+  if ((skill.moderationReasonCodes ?? []).some((code) => code.startsWith("suspicious."))) {
+    return "suspicious";
+  }
   return "clean";
 }

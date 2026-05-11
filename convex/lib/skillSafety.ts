@@ -12,6 +12,10 @@ export function isSkillSuspicious(
   return isScannerSuspiciousReason(skill.moderationReason);
 }
 
+export function isSkillReviewFlagged(skill: Pick<Doc<"skills">, "moderationFlags">) {
+  return skill.moderationFlags?.includes("flagged.review") ?? false;
+}
+
 /**
  * Compute the denormalized `isSuspicious` boolean for a skill.
  * Use at every mutation site that writes `moderationFlags` or `moderationReason`.

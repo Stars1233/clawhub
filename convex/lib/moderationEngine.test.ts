@@ -1975,6 +1975,45 @@ describe("moderationEngine", () => {
     expect(snapshot.reasonCodes).toContain("suspicious.vt_suspicious");
   });
 
+  it("keeps medium LLM concerns visible as review instead of hidden suspicious", () => {
+    const snapshot = buildModerationSnapshot({
+      llmStatus: "suspicious",
+      llmAnalysis: {
+        status: "suspicious",
+        agenticRiskFindings: [
+          {
+            status: "concern",
+            severity: "medium",
+          },
+        ],
+      },
+    });
+
+    expect(snapshot.verdict).toBe("clean");
+    expect(snapshot.reasonCodes).toEqual(["review.llm_review"]);
+    expect(snapshot.summary).toBe("Review: review.llm_review");
+    expect(snapshot.legacyFlags).toBeUndefined();
+  });
+
+  it("keeps high LLM concerns in the suspicious bucket", () => {
+    const snapshot = buildModerationSnapshot({
+      llmStatus: "suspicious",
+      llmAnalysis: {
+        status: "suspicious",
+        riskSummary: {
+          abnormal_behavior_control: {
+            status: "concern",
+            highestSeverity: "high",
+          },
+        },
+      },
+    });
+
+    expect(snapshot.verdict).toBe("suspicious");
+    expect(snapshot.reasonCodes).toEqual(["suspicious.llm_suspicious"]);
+    expect(snapshot.legacyFlags).toEqual(["flagged.suspicious"]);
+  });
+
   it("does not let uncorroborated VT Code Insight suspicious override clean local scans", () => {
     const snapshot = buildModerationSnapshot({
       staticScan: {

@@ -99,7 +99,7 @@ import {
   queueHighlightedWebhook,
 } from "./lib/skillPublish";
 import { getFrontmatterValue, hashSkillFiles } from "./lib/skills";
-import { computeIsSuspicious, isSkillSuspicious } from "./lib/skillSafety";
+import { computeIsSuspicious, isSkillReviewFlagged, isSkillSuspicious } from "./lib/skillSafety";
 import {
   digestToHydratableSkill,
   digestToOwnerInfo,
@@ -207,6 +207,7 @@ const depRegistryAnalysisValidator = v.object({
 function buildStructuredModerationPatch(params: {
   staticScan?: Doc<"skillVersions">["staticScan"];
   vtAnalysis?: Doc<"skillVersions">["vtAnalysis"];
+  llmAnalysis?: Doc<"skillVersions">["llmAnalysis"];
   vtStatus?: string;
   llmStatus?: string;
   sourceVersionId?: Id<"skillVersions">;
@@ -225,6 +226,7 @@ function buildStructuredModerationPatch(params: {
     vtAnalysis: params.vtAnalysis,
     vtStatus: params.vtStatus,
     llmStatus: params.llmStatus,
+    llmAnalysis: params.llmAnalysis,
     sourceVersionId: params.sourceVersionId,
   });
 
@@ -256,6 +258,37 @@ function trimManualOverrideNote(note: string) {
 
 function normalizeAnalysisStatus(status: string | undefined) {
   return status?.trim().toLowerCase();
+}
+
+function hasReviewReasonCode(codes: readonly string[] | undefined) {
+  return (codes ?? []).some((code) => code.startsWith("review."));
+}
+
+function isObviousJunkSkill(
+  skill: Pick<Doc<"skills">, "slug" | "displayName" | "summary" | "isSuspicious">,
+) {
+  if (!skill.isSuspicious) return false;
+  const slug = skill.slug.trim().toLowerCase();
+  const displayName = skill.displayName.trim().toLowerCase();
+  const summary = (skill.summary ?? "").trim().toLowerCase();
+  if (
+    /^(?:test-skill|testskill|dummy-skill|placeholder-skill|untitled-skill)(?:-[0-9a-z]+)?$/.test(
+      slug,
+    )
+  ) {
+    return true;
+  }
+  if (slug === "skill-tester" && displayName === "skill tester" && summary === "skill tester") {
+    return true;
+  }
+  return (
+    (displayName === "test skill" ||
+      displayName === "demo skill" ||
+      displayName === "dummy skill" ||
+      displayName === "placeholder skill" ||
+      displayName === "untitled skill") &&
+    (!summary || summary === "test" || summary === "demo" || summary === "todo")
+  );
 }
 
 function resolveScannerModerationReason(params: {
@@ -292,6 +325,7 @@ function buildScannerModerationPatchFromVersion(params: {
   const structuredPatch = buildStructuredModerationPatch({
     staticScan: params.version.staticScan,
     vtAnalysis: params.version.vtAnalysis,
+    llmAnalysis: params.version.llmAnalysis,
     vtStatus: params.version.vtAnalysis?.status,
     llmStatus: params.version.llmAnalysis?.status,
     sourceVersionId: params.version._id,
@@ -310,10 +344,14 @@ function buildScannerModerationPatchFromVersion(params: {
     ? sourceReasonCodes.filter((code) => !code.startsWith("suspicious."))
     : sourceReasonCodes;
   const moderationVerdict = verdictFromCodes(moderationReasonCodes);
-  const moderationFlags = legacyFlagsFromVerdict(moderationVerdict);
+  const moderationFlags = hasReviewReasonCode(moderationReasonCodes)
+    ? ["flagged.review"]
+    : legacyFlagsFromVerdict(moderationVerdict);
   const moderationReason = bypassSuspicious
     ? normalizeScannerSuspiciousReason(sourceReason)
-    : sourceReason;
+    : moderationReasonCodes.includes("review.llm_review")
+      ? "scanner.llm.review"
+      : sourceReason;
   const moderationStatus = moderationVerdict === "malicious" ? "hidden" : "active";
 
   return {
@@ -1835,6 +1873,7 @@ export const getBySlug = query({
       skill.moderationStatus === "hidden" && skill.moderationReason === "pending.scan";
     const isMalwareBlocked = skill.moderationFlags?.includes("blocked.malware") ?? false;
     const isSuspicious = skill.moderationFlags?.includes("flagged.suspicious") ?? false;
+    const isReviewFlagged = isSkillReviewFlagged(skill);
     const isHiddenByMod =
       skill.moderationStatus === "hidden" && !isPendingScan && !isMalwareBlocked;
     const isRemoved = skill.moderationStatus === "removed";
@@ -1867,7 +1906,8 @@ export const getBySlug = query({
     };
 
     // Moderation info - visible to owners for all states, or anyone for flagged skills (transparency)
-    const showModerationInfo = isOwner || isMalwareBlocked || isSuspicious || overrideActive;
+    const showModerationInfo =
+      isOwner || isMalwareBlocked || isSuspicious || isReviewFlagged || overrideActive;
     const publicModerationSummary =
       !isOwner && overrideActive && !isMalwareBlocked && !isSuspicious
         ? "Security findings were reviewed by moderators and cleared for public use."
@@ -1877,6 +1917,7 @@ export const getBySlug = query({
           isPendingScan,
           isMalwareBlocked,
           isSuspicious,
+          isReviewFlagged,
           isHiddenByMod,
           isRemoved,
           overrideActive,
@@ -5186,6 +5227,82 @@ export const getSuspiciousSkillCountPageInternal = internalQuery({
   },
 });
 
+export const hideObviousJunkSuspiciousSkillsInternal = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    batchSize: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+    maxToHide: v.optional(v.number()),
+    accExamined: v.optional(v.number()),
+    accMatched: v.optional(v.number()),
+    accHidden: v.optional(v.number()),
+    examples: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    const batchSize = clampInt(args.batchSize ?? 200, 1, 200);
+    const dryRun = args.dryRun ?? false;
+    const maxToHide =
+      args.maxToHide === undefined ? Number.POSITIVE_INFINITY : Math.max(0, args.maxToHide);
+    const now = Date.now();
+    let accExamined = args.accExamined ?? 0;
+    let accMatched = args.accMatched ?? 0;
+    let accHidden = args.accHidden ?? 0;
+    const examples = [...(args.examples ?? [])];
+
+    const { page, continueCursor, isDone } = await ctx.db
+      .query("skills")
+      .withIndex("by_nonsuspicious_updated", (q) =>
+        q.eq("softDeletedAt", undefined).eq("isSuspicious", true),
+      )
+      .order("asc")
+      .paginate({ cursor: args.cursor ?? null, numItems: batchSize });
+
+    for (const skill of page) {
+      accExamined++;
+      if (!isObviousJunkSkill(skill)) continue;
+      accMatched++;
+      if (examples.length < 25) examples.push(skill.slug);
+      if (dryRun || accHidden >= maxToHide) continue;
+
+      await ctx.db.patch(skill._id, {
+        softDeletedAt: now,
+        moderationStatus: "hidden",
+        moderationReason: "cleanup.obvious_junk",
+        moderationNotes: "Auto-hidden obvious test or placeholder skill during ClawScan cleanup.",
+        hiddenAt: now,
+        hiddenBy: undefined,
+        lastReviewedAt: now,
+        updatedAt: now,
+      });
+      accHidden++;
+    }
+
+    const hitLimit = accHidden >= maxToHide;
+    if (!isDone && !hitLimit && !dryRun) {
+      await ctx.scheduler.runAfter(0, internal.skills.hideObviousJunkSuspiciousSkillsInternal, {
+        cursor: continueCursor,
+        batchSize,
+        dryRun,
+        maxToHide,
+        accExamined,
+        accMatched,
+        accHidden,
+        examples,
+      });
+    }
+
+    return {
+      status: dryRun ? "dry_run" : hitLimit ? "limit_reached" : isDone ? "complete" : "continuing",
+      examined: accExamined,
+      matched: accMatched,
+      hidden: accHidden,
+      examples,
+      cursor: continueCursor,
+      done: isDone,
+    };
+  },
+});
+
 /**
  * Get active latest skill versions whose static scan is missing or uses an older engine version.
  * Used to backfill new static rules onto already-published skills.
@@ -5720,6 +5837,7 @@ export const escalateSkillByIdInternal = internalMutation({
       vtAnalysis: version?.vtAnalysis,
       vtStatus,
       llmStatus,
+      llmAnalysis: version?.llmAnalysis,
       sourceVersionId: version?._id,
     });
     const sourceReasonCodes = snapshot.reasonCodes;
@@ -5734,10 +5852,14 @@ export const escalateSkillByIdInternal = internalMutation({
       ? sourceReasonCodes.filter((code) => !code.startsWith("suspicious."))
       : sourceReasonCodes;
     const moderationVerdict = verdictFromCodes(moderationReasonCodes);
-    const moderationFlags = legacyFlagsFromVerdict(moderationVerdict);
+    const moderationFlags = hasReviewReasonCode(moderationReasonCodes)
+      ? ["flagged.review"]
+      : legacyFlagsFromVerdict(moderationVerdict);
     const moderationReason = bypassSuspicious
       ? normalizeScannerSuspiciousReason(sourceReason)
-      : sourceReason;
+      : hasReviewReasonCode(moderationReasonCodes)
+        ? "scanner.llm.review"
+        : sourceReason;
     const moderationStatus = moderationVerdict === "malicious" ? "hidden" : args.moderationStatus;
 
     const basePatch: SkillModerationPatch = {
@@ -6504,6 +6626,7 @@ export const approveSkillByHashInternal = internalMutation({
         vtAnalysis: version.vtAnalysis,
         vtStatus: scanner === "vt" ? args.status : version.vtAnalysis?.status,
         llmStatus: scanner === "llm" ? args.status : version.llmAnalysis?.status,
+        llmAnalysis: version.llmAnalysis,
         sourceVersionId: version._id,
       });
       const nextReasonCodes =
@@ -6513,15 +6636,17 @@ export const approveSkillByHashInternal = internalMutation({
       const nextVerdict = verdictFromCodes(nextReasonCodes);
       const nextLegacyFlags = legacyFlagsFromVerdict(nextVerdict);
       if (nextVerdict === "clean" && !alreadyBlocked) {
-        newFlags = undefined;
+        newFlags = hasReviewReasonCode(nextReasonCodes) ? ["flagged.review"] : undefined;
       }
       const nextModerationReason = qualityLocked
         ? "quality.low"
-        : bypassSuspicious
-          ? `scanner.${args.scanner}.clean`
-          : nextVerdict === "clean"
-            ? "scanner.aggregate.clean"
-            : `scanner.${args.scanner}.${args.status}`;
+        : hasReviewReasonCode(nextReasonCodes)
+          ? "scanner.llm.review"
+          : bypassSuspicious
+            ? `scanner.${args.scanner}.clean`
+            : nextVerdict === "clean"
+              ? "scanner.aggregate.clean"
+              : `scanner.${args.scanner}.${args.status}`;
       const nextModerationStatus =
         nextVerdict === "malicious" || qualityLocked ? "hidden" : "active";
 
@@ -6615,6 +6740,7 @@ export const escalateByVtInternal = internalMutation({
       vtAnalysis: version.vtAnalysis,
       vtStatus: args.status,
       llmStatus: version.llmAnalysis?.status,
+      llmAnalysis: version.llmAnalysis,
       sourceVersionId: version._id,
     });
     const nextReasonCodes =
@@ -6624,11 +6750,13 @@ export const escalateByVtInternal = internalMutation({
     const nextVerdict = verdictFromCodes(nextReasonCodes);
     const nextLegacyFlags = legacyFlagsFromVerdict(nextVerdict);
     const nextModerationFlags =
-      nextVerdict === "clean" && !alreadyBlocked
-        ? undefined
-        : newFlags.length
-          ? newFlags
-          : nextLegacyFlags;
+      hasReviewReasonCode(nextReasonCodes) && !alreadyBlocked
+        ? ["flagged.review"]
+        : nextVerdict === "clean" && !alreadyBlocked
+          ? undefined
+          : newFlags.length
+            ? newFlags
+            : nextLegacyFlags;
     const now = Date.now();
     const basePatch: SkillModerationPatch = {
       moderationFlags: nextModerationFlags,
@@ -6645,6 +6773,8 @@ export const escalateByVtInternal = internalMutation({
       basePatch.moderationReason = normalizeScannerSuspiciousReason(
         skill.moderationReason as string | undefined,
       );
+    } else if (hasReviewReasonCode(nextReasonCodes) && !alreadyBlocked) {
+      basePatch.moderationReason = "scanner.llm.review";
     } else if (nextVerdict === "clean" && !alreadyBlocked) {
       const existingReason = skill.moderationReason as string | undefined;
       if (existingReason?.startsWith("scanner.") && existingReason.endsWith(".suspicious")) {
