@@ -75,6 +75,7 @@ import {
   assertCanManageOwnedResource,
   ensurePersonalPublisherForUser,
   getOwnerPublisher,
+  getPersonalPublisherForUserOrFallback,
   getPublisherByHandle,
   getPublisherMembership,
   isPublisherActive,
@@ -1998,7 +1999,7 @@ export const getBySlug = query({
 });
 
 export const checkSlugAvailability = query({
-  args: { slug: v.string() },
+  args: { slug: v.string(), ownerHandle: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     const slug = normalizeSkillSlugKey(args.slug);
@@ -2084,13 +2085,47 @@ export const checkSlugAvailability = query({
       };
     }
 
-    if (userId && skill.ownerUserId === userId) {
+    const requestedHandle = normalizePublisherHandle(args.ownerHandle);
+    const materializedRequestedPublisher = requestedHandle
+      ? await getPublisherByHandle(ctx, requestedHandle)
+      : null;
+    const fallbackOwner =
+      requestedHandle && !materializedRequestedPublisher
+        ? await ctx.db.get(skill.ownerUserId)
+        : null;
+    const fallbackRequestedPublisher =
+      fallbackOwner && !fallbackOwner.deletedAt && !fallbackOwner.deactivatedAt
+        ? await getPersonalPublisherForUserOrFallback(ctx, fallbackOwner)
+        : null;
+    const requestedPublisher =
+      fallbackRequestedPublisher?.handle === requestedHandle
+        ? fallbackRequestedPublisher
+        : materializedRequestedPublisher;
+    const requestedPublisherMatchesSkill = requestedPublisher
+      ? skill.ownerPublisherId
+        ? requestedPublisher._id === skill.ownerPublisherId
+        : requestedPublisher.kind === "user" &&
+          requestedPublisher.linkedUserId === skill.ownerUserId
+      : !requestedHandle;
+
+    if (userId && skill.ownerUserId === userId && requestedPublisherMatchesSkill) {
       return {
         available: true,
         reason: "available" as const,
         message: null,
         url: null,
       };
+    }
+    if (userId && skill.ownerPublisherId && requestedPublisherMatchesSkill) {
+      const membership = await getPublisherMembership(ctx, skill.ownerPublisherId, userId);
+      if (membership && isPublisherRoleAllowed(membership.role, ["publisher"])) {
+        return {
+          available: true,
+          reason: "available" as const,
+          message: null,
+          url: null,
+        };
+      }
     }
 
     const owner = await ctx.db.get(skill.ownerUserId);

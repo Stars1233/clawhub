@@ -17,6 +17,7 @@ type SkillDoc = {
   _id: string;
   slug: string;
   ownerUserId: string;
+  ownerPublisherId?: string;
   softDeletedAt?: number;
   hiddenBy?: string;
   unpublishedSlugReservedUntil?: number;
@@ -34,7 +35,7 @@ type ReservationDoc = {
 };
 
 const checkSlugAvailabilityHandler = (
-  checkSlugAvailability as unknown as WrappedHandler<{ slug: string }>
+  checkSlugAvailability as unknown as WrappedHandler<{ slug: string; ownerHandle?: string }>
 )._handler;
 
 function createCtx(options: {
@@ -45,10 +46,22 @@ function createCtx(options: {
   owner?: {
     _id: string;
     handle?: string | null;
+    name?: string | null;
+    displayName?: string | null;
+    email?: string | null;
     deletedAt?: number;
     deactivatedAt?: number;
   } | null;
   callerId?: string;
+  publisherMembership?: { role: "owner" | "admin" | "publisher" } | null;
+  publisher?: {
+    _id: string;
+    handle: string;
+    kind: "user" | "org";
+    linkedUserId?: string;
+    deletedAt?: number;
+    deactivatedAt?: number;
+  } | null;
   ownerProviderAccountId?: string | null;
   callerProviderAccountId?: string | null;
 }) {
@@ -57,11 +70,11 @@ function createCtx(options: {
 
   const db = {
     get: vi.fn(async (id: string) => {
+      if (options.owner && id === options.owner._id) return options.owner;
       if (id === callerId) {
         return { _id: callerId, deletedAt: undefined, deactivatedAt: undefined };
       }
       if (options.aliasedSkill && id === options.aliasedSkill._id) return options.aliasedSkill;
-      if (options.owner && id === options.owner._id) return options.owner;
       return null;
     }),
     query: vi.fn((table: string) => {
@@ -95,6 +108,37 @@ function createCtx(options: {
             if (name !== "by_slug") throw new Error(`unexpected skillSlugAliases index ${name}`);
             return {
               unique: async () => options.alias ?? null,
+            };
+          },
+        };
+      }
+      if (table === "publisherMembers") {
+        return {
+          withIndex: (name: string) => {
+            if (name !== "by_publisher_user")
+              throw new Error(`unexpected publisherMembers index ${name}`);
+            return {
+              unique: async () =>
+                options.publisherMembership
+                  ? {
+                      _id: "publisherMembers:caller",
+                      publisherId: options.skill?.ownerPublisherId,
+                      userId: callerId,
+                      role: options.publisherMembership.role,
+                    }
+                  : null,
+            };
+          },
+        };
+      }
+      if (table === "publishers") {
+        return {
+          withIndex: (name: string) => {
+            if (name !== "by_handle" && name !== "by_linked_user") {
+              throw new Error(`unexpected publishers index ${name}`);
+            }
+            return {
+              unique: async () => options.publisher ?? null,
             };
           },
         };
@@ -385,6 +429,124 @@ describe("skills.checkSlugAvailability", () => {
       reason: "available",
       message: null,
       url: null,
+    });
+  });
+
+  it("returns available for current user when personal publisher is only synthesized", async () => {
+    vi.mocked(getAuthUserId).mockResolvedValue("users:caller" as never);
+
+    const result = (await checkSlugAvailabilityHandler(
+      createCtx({
+        skill: {
+          _id: "skills:1",
+          slug: "legacy-skill",
+          ownerUserId: "users:caller",
+          softDeletedAt: undefined,
+          moderationStatus: "active",
+          moderationFlags: undefined,
+        },
+        owner: {
+          _id: "users:caller",
+          handle: "legacy-user",
+          deletedAt: undefined,
+          deactivatedAt: undefined,
+        },
+        publisher: null,
+      }) as never,
+      { slug: "legacy-skill", ownerHandle: "legacy-user" } as never,
+    )) as {
+      available: boolean;
+      reason: string;
+      message: string | null;
+      url: string | null;
+    };
+
+    expect(result).toEqual({
+      available: true,
+      reason: "available",
+      message: null,
+      url: null,
+    });
+  });
+
+  it("returns available when slug belongs to a publisher the caller can publish to", async () => {
+    vi.mocked(getAuthUserId).mockResolvedValue("users:caller" as never);
+
+    const result = (await checkSlugAvailabilityHandler(
+      createCtx({
+        skill: {
+          _id: "skills:1",
+          slug: "mapv-three",
+          ownerUserId: "users:original",
+          ownerPublisherId: "publishers:baidu-maps",
+          softDeletedAt: undefined,
+          moderationStatus: "active",
+          moderationFlags: undefined,
+        },
+        publisherMembership: { role: "publisher" },
+        publisher: {
+          _id: "publishers:baidu-maps",
+          handle: "baidu-maps",
+          kind: "org",
+        },
+      }) as never,
+      { slug: "mapv-three", ownerHandle: "baidu-maps" } as never,
+    )) as {
+      available: boolean;
+      reason: string;
+      message: string | null;
+      url: string | null;
+    };
+
+    expect(result).toEqual({
+      available: true,
+      reason: "available",
+      message: null,
+      url: null,
+    });
+  });
+
+  it("returns taken when publisher membership does not match the requested owner", async () => {
+    vi.mocked(getAuthUserId).mockResolvedValue("users:caller" as never);
+
+    const result = (await checkSlugAvailabilityHandler(
+      createCtx({
+        skill: {
+          _id: "skills:1",
+          slug: "mapv-three",
+          ownerUserId: "users:original",
+          ownerPublisherId: "publishers:baidu-maps",
+          softDeletedAt: undefined,
+          moderationStatus: "active",
+          moderationFlags: undefined,
+        },
+        owner: {
+          _id: "users:original",
+          handle: "original",
+          deletedAt: undefined,
+          deactivatedAt: undefined,
+        },
+        publisherMembership: { role: "publisher" },
+        publisher: {
+          _id: "publishers:other-org",
+          handle: "other-org",
+          kind: "org",
+        },
+      }) as never,
+      { slug: "mapv-three", ownerHandle: "other-org" } as never,
+    )) as {
+      available: boolean;
+      reason: string;
+      message: string | null;
+      url: string | null;
+    };
+
+    expect(result).toEqual({
+      available: false,
+      reason: "taken",
+      message:
+        "Slug is already taken. Choose a different slug. Existing skill: /original/mapv-three",
+      url: "/original/mapv-three",
     });
   });
 
