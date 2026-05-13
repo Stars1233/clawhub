@@ -612,7 +612,7 @@ describe("SecurityScanResults static guidance", () => {
   });
 
   it("shows skills with legacy-only ClawScan analysis in the new ClawScan report shell", () => {
-    render(
+    const { container } = render(
       <SecurityScannerPage
         scanner="clawscan"
         entity={{
@@ -633,6 +633,9 @@ describe("SecurityScanResults static guidance", () => {
     expect(screen.getByRole("heading", { name: "Scan Metadata" })).toBeTruthy();
     expect(screen.queryByText("Review Dimensions")).toBeNull();
     expect(screen.queryByText("Purpose & Capability")).toBeNull();
+    expect(
+      container.querySelector('nav[aria-label="Breadcrumb"] a[href="/user/local"]'),
+    ).toBeTruthy();
   });
 
   it("shows the new ClawScan empty state when no analysis exists yet", () => {
