@@ -1,8 +1,8 @@
-![ClawHub banner](docs/assets/readme-banner.jpg)
-
 <p align="center">
   <img src="public/clawd-logo.png" alt="ClawHub" width="120">
 </p>
+
+![ClawHub banner](docs/assets/readme-banner.jpg)
 
 <h1 align="center">ClawHub</h1>
 
