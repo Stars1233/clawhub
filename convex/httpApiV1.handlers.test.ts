@@ -4675,6 +4675,15 @@ describe("httpApiV1 handlers", () => {
         engineVersion: "static-v1",
         checkedAt: 2,
       },
+      depRegistryAnalysis: {
+        status: "suspicious",
+        results: [],
+        notFoundPackages: ["left-pad (npm)"],
+        unresolvedPackages: [],
+        summary: "Legacy dependency registry warning.",
+        checkedAt: 9,
+      },
+      depRegistryScanStatus: "suspicious",
       llmAnalysis: {
         status: "clean",
         verdict: "clean",
@@ -4682,14 +4691,6 @@ describe("httpApiV1 handlers", () => {
         summary: "ClawScan clean.",
         checkedAt: 3,
         model: "gpt-test",
-      },
-      depRegistryAnalysis: {
-        status: "clean",
-        results: [],
-        notFoundPackages: [],
-        unresolvedPackages: [],
-        summary: "No dependency issues.",
-        checkedAt: 4,
       },
       capabilityTags: ["dev-tools"],
       softDeletedAt: undefined,
@@ -4743,7 +4744,7 @@ describe("httpApiV1 handlers", () => {
           requestedVersion: "1.0.0",
           version: "1.0.0",
           createdAt: 1,
-          checkedAt: 4,
+          checkedAt: 3,
           skillUrl: "https://example.com/acme/demo",
           securityAuditUrl: "https://example.com/acme/demo/security-audit?version=1.0.0",
           security: {
@@ -4753,7 +4754,7 @@ describe("httpApiV1 handlers", () => {
             verdict: "clean",
             signals: {
               staticScan: { status: "clean", rawStatus: "clean" },
-              dependencyRegistry: { status: "clean", rawStatus: "clean" },
+              dependencyRegistry: null,
             },
           },
         },
@@ -4762,7 +4763,13 @@ describe("httpApiV1 handlers", () => {
     expect(json.items[0].card).toBeUndefined();
     expect(json.items[0].artifact).toBeUndefined();
     expect(json.items[0].security.signals.staticScan.findings).toBeUndefined();
-    expect(json.items[0].security.signals.dependencyRegistry.notFoundPackages).toBeUndefined();
+    expect(Object.keys(json.items[0].security.signals)).toEqual([
+      "staticScan",
+      "virusTotal",
+      "skillSpector",
+      "dependencyRegistry",
+    ]);
+    expect(json.items[0].security.signals.dependencyRegistry).toBeNull();
     expect(runQuery.mock.calls.map(([, args]) => args)).toContainEqual({
       slug: "demo",
       version: "1.0.0",
@@ -5141,6 +5148,15 @@ describe("httpApiV1 handlers", () => {
         source: "engines",
         checkedAt: 4,
       },
+      depRegistryAnalysis: {
+        status: "suspicious",
+        results: [],
+        notFoundPackages: ["left-pad (npm)"],
+        unresolvedPackages: [],
+        summary: "Legacy dependency registry warning.",
+        checkedAt: 9,
+      },
+      depRegistryScanStatus: "suspicious",
       skillSpectorAnalysis: {
         status: "clean",
         score: 0,
@@ -5151,14 +5167,6 @@ describe("httpApiV1 handlers", () => {
         scannerVersion: "skillspector-test",
         summary: "SkillSpector clean.",
         checkedAt: 5,
-      },
-      depRegistryAnalysis: {
-        status: "clean",
-        results: [],
-        notFoundPackages: [],
-        unresolvedPackages: [],
-        summary: "No dependency issues.",
-        checkedAt: 6,
       },
       capabilityTags: ["dev-tools"],
       softDeletedAt: undefined,
@@ -5256,7 +5264,7 @@ describe("httpApiV1 handlers", () => {
             recommendation: "INSTALL",
             issueCount: 0,
           },
-          dependencyRegistry: { status: "clean" },
+          dependencyRegistry: null,
         },
       },
       signature: { status: "unsigned" },
@@ -5415,7 +5423,7 @@ describe("httpApiV1 handlers", () => {
     expect(json.security).toMatchObject({ status: "clean", passed: true });
   });
 
-  it("passes verification when static and dependency findings are advisory but ClawScan is clean", async () => {
+  it("passes verification when static findings are advisory but ClawScan is clean", async () => {
     const internalVersion = {
       _id: "skillVersions:1",
       skillId: "skills:1",
@@ -5441,14 +5449,6 @@ describe("httpApiV1 handlers", () => {
         verdict: "benign",
         summary: "ClawScan clean.",
         checkedAt: 3,
-      },
-      depRegistryAnalysis: {
-        status: "malicious",
-        results: [],
-        notFoundPackages: ["left-pad"],
-        unresolvedPackages: [],
-        summary: "Dependency advisory warning.",
-        checkedAt: 4,
       },
       softDeletedAt: undefined,
     };
@@ -5498,7 +5498,7 @@ describe("httpApiV1 handlers", () => {
       verdict: "benign",
       signals: {
         staticScan: { status: "malicious", rawStatus: "malicious" },
-        dependencyRegistry: { status: "malicious", rawStatus: "malicious" },
+        dependencyRegistry: null,
       },
     });
   });
