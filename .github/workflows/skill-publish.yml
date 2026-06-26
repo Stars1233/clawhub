@@ -215,10 +215,12 @@ jobs:
               if is_skill_folder(root):
                   targets = [root]
               elif root.is_dir():
-                  targets = sorted(
-                      (child for child in root.iterdir() if is_skill_folder(child)),
-                      key=lambda child: child.name.lower(),
-                  )
+                  discovered = []
+                  for child in root.iterdir():
+                      resolved_child = resolve_inside_workspace(child)
+                      if is_skill_folder(resolved_child):
+                          discovered.append(resolved_child)
+                  targets = sorted(discovered, key=lambda child: child.name.lower())
               else:
                   targets = []
               if not targets:

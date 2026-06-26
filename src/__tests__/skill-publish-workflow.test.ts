@@ -17,6 +17,9 @@ describe("skill publish workflow", () => {
     expect(workflow).toContain("--source-commit");
     expect(workflow).toContain("alreadySynced");
     expect(workflow).toContain("wouldPublish");
+    expect(workflow).toMatch(
+      /for child in root\.iterdir\(\):\s+resolved_child = resolve_inside_workspace\(child\)\s+if is_skill_folder\(resolved_child\):\s+discovered\.append\(resolved_child\)/,
+    );
     expect(workflow).not.toMatch(/\bsync\b/);
     expect(workflow).not.toContain("--bump");
   });
