@@ -292,6 +292,7 @@ jobs:
 
       - name: Capture workflow outputs
         id: capture
+        if: ${{ always() }}
         run: |
           python3 - <<'PY'
           import json
@@ -299,6 +300,9 @@ jobs:
           from pathlib import Path
 
           output_path = Path(os.environ["RUNNER_TEMP"]) / "skill-publish.json"
+          if not output_path.is_file():
+              print(f"Publish output not found at {output_path}; skipping capture.")
+              raise SystemExit(0)
           parsed = json.loads(output_path.read_text(encoding="utf-8"))
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
               fh.write("publish_json<<__CLAWHUB_JSON__\n")
@@ -308,7 +312,8 @@ jobs:
 
       - name: Upload publish JSON artifact
         uses: actions/upload-artifact@v7
+        if: ${{ always() }}
         with:
           name: clawhub-skill-publish-json
           path: ${{ runner.temp }}/skill-publish.json
-          if-no-files-found: error
+          if-no-files-found: ignore

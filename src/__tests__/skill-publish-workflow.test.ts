@@ -23,4 +23,13 @@ describe("skill publish workflow", () => {
     expect(workflow).not.toMatch(/\bsync\b/);
     expect(workflow).not.toContain("--bump");
   });
+
+  it("preserves publish output when a target fails", () => {
+    const workflow = readFileSync(resolve(".github/workflows/skill-publish.yml"), "utf8");
+
+    expect(workflow).toContain("id: capture\n        if: ${{ always() }}");
+    expect(workflow).toContain("if not output_path.is_file():");
+    expect(workflow).toContain("uses: actions/upload-artifact@v7\n        if: ${{ always() }}");
+    expect(workflow).toContain("if-no-files-found: ignore");
+  });
 });
