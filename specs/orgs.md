@@ -111,18 +111,27 @@ Indexes:
 - `by_user`
 - `by_publisher_user`
 
-### Optional: publisher invites
+### Publisher invites
 
-Add later if needed:
+`publisherInvites` is the self-serve path for first-time org membership.
 
-- `publisherInvites`
-- email or GitHub-login based invite target
-- inviter user id
-- target publisher id
-- role
-- token / expiry / status
+Fields:
 
-Keep this out of the first migration if it slows down ownership work.
+- `publisherId`
+- `inviterUserId`
+- `targetHandle`
+- `targetUserId`
+- `role`: `owner | admin | publisher`
+- `status`: `pending | accepted | declined | revoked`
+- `createdAt`
+- `updatedAt`
+- `expiresAt`
+
+Indexes must support bounded manager listing, incoming invite lookup by target
+user or handle, duplicate active invite checks, and expiry pruning. Accepted,
+declined, revoked, and expired invite rows are operational history only; the
+accepted membership row in `publisherMembers` is the authorization source of
+truth.
 
 ## Ownership Changes
 
@@ -286,6 +295,12 @@ checks, but authorization must key off `linkedUserId`, not extra membership
 rows. Public member add mutations must not treat personal publishers as
 organizations; remove mutations may only let the linked user clean up stale
 extra membership rows.
+
+Self-serve org membership must be recipient-accepted. Org owners/admins may
+update roles for existing accepted members, but they must not be able to create
+a first membership row for an arbitrary user handle. Direct staff repair paths
+are allowed only through admin-gated tooling that requires a reason and writes
+an audit event.
 
 Skill slug merges are content-management operations. They must authorize through
 publisher ownership, not only `ownerUserId`, so org owners/admins can merge two

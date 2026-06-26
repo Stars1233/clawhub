@@ -7,14 +7,20 @@ import {
 } from "./lib/publishers";
 import {
   addMember,
+  acceptMemberInvite,
+  listInvitesForPublisher,
+  listMyInvites,
   listPublicPage,
   listPublic,
   listMine,
   getMyProfileHandle,
   getProfileByHandle,
+  createMemberInvite,
+  declineMemberInvite,
   listMembers,
   listPublishedPage,
   listStarredPage,
+  revokeMemberInvite,
   getPublishedDisplayManifest,
   migrateLegacyPublisherHandleToOrgInternal,
   ensureOrgPublisherHandleInternal,
@@ -48,6 +54,40 @@ const addMemberHandler = (
     userHandle: string;
     role: "owner" | "admin" | "publisher";
   }>
+)._handler;
+
+const createMemberInviteHandler = (
+  createMemberInvite as unknown as WrappedHandler<
+    {
+      publisherId: string;
+      userHandle: string;
+      role: "owner" | "admin" | "publisher";
+    },
+    { ok: true; inviteId: string }
+  >
+)._handler;
+
+const revokeMemberInviteHandler = (
+  revokeMemberInvite as unknown as WrappedHandler<{ inviteId: string }, { ok: true }>
+)._handler;
+
+const declineMemberInviteHandler = (
+  declineMemberInvite as unknown as WrappedHandler<{ inviteId: string }, { ok: true }>
+)._handler;
+
+const acceptMemberInviteHandler = (
+  acceptMemberInvite as unknown as WrappedHandler<{ inviteId: string }, { ok: true }>
+)._handler;
+
+const listInvitesForPublisherHandler = (
+  listInvitesForPublisher as unknown as WrappedHandler<
+    { publisherId: string },
+    Array<{ _id: string; targetHandle: string }>
+  >
+)._handler;
+
+const listMyInvitesHandler = (
+  listMyInvites as unknown as WrappedHandler<Record<string, never>, Array<{ _id: string }>>
 )._handler;
 
 const removeMemberHandler = (
@@ -594,6 +634,17 @@ function emptyOwnedResourcesQuery() {
   };
 }
 
+function emptyPublisherInvitesQuery() {
+  return {
+    withIndex: vi.fn((indexName: string) => {
+      if (indexName !== "by_publisher_status_expires") {
+        throw new Error(`unexpected publisherInvites index ${indexName}`);
+      }
+      return { collect: vi.fn(async () => []) };
+    }),
+  };
+}
+
 function makeResolvePublishTargetCtx(options: {
   targetPublisher: Record<string, unknown>;
   targetMembership?: Record<string, unknown> | null;
@@ -730,6 +781,9 @@ describe("publishers membership controls", () => {
           if (table === "officialPublishers") {
             return emptyOfficialPublishersQuery();
           }
+          if (table === "publisherInvites") {
+            return emptyPublisherInvitesQuery();
+          }
           if (table !== "publisherMembers") throw new Error(`unexpected table ${table}`);
           return {
             withIndex: vi.fn((indexName: string) => ({
@@ -825,6 +879,9 @@ describe("publishers membership controls", () => {
           if (table === "officialPublishers") {
             return emptyOfficialPublishersQuery();
           }
+          if (table === "publisherInvites") {
+            return emptyPublisherInvitesQuery();
+          }
           if (table !== "publisherMembers") throw new Error(`unexpected table ${table}`);
           return {
             withIndex: vi.fn(() => ({
@@ -857,6 +914,7 @@ describe("publishers membership controls", () => {
       publisher?: Record<string, unknown> | null;
       activeSkills?: Array<Record<string, unknown>>;
       activePackages?: Array<Record<string, unknown>>;
+      invites?: Array<Record<string, unknown>>;
     } = {},
   ) {
     const publisher = options.publisher ?? {
@@ -914,6 +972,36 @@ describe("publishers membership controls", () => {
             if (indexName !== "by_publisher") throw new Error(`unexpected index ${indexName}`);
             return { collect: vi.fn(async () => members) };
           }),
+        };
+      }
+      if (table === "publisherInvites") {
+        return {
+          withIndex: vi.fn(
+            (
+              indexName: string,
+              builder?: (q: { eq: (field: string, value: string) => unknown }) => unknown,
+            ) => {
+              if (indexName !== "by_publisher_status_expires") {
+                throw new Error(`unexpected index ${indexName}`);
+              }
+              const fields: Record<string, string> = {};
+              const q = {
+                eq: (field: string, value: string) => {
+                  fields[field] = value;
+                  return q;
+                },
+              };
+              builder?.(q);
+              return {
+                collect: vi.fn(async () =>
+                  (options.invites ?? []).filter(
+                    (invite) =>
+                      invite.publisherId === fields.publisherId && invite.status === fields.status,
+                  ),
+                ),
+              };
+            },
+          ),
         };
       }
       if (table === "githubSkillSources" || table === "githubSkillContents") {
@@ -982,7 +1070,15 @@ describe("publishers membership controls", () => {
   });
 
   it("hard deletes the deleted org publisher row and records an audit log", async () => {
-    const { ctx, deleted, insert } = makeReclaimDeletedOrgCtx();
+    const { ctx, deleted, insert } = makeReclaimDeletedOrgCtx({
+      invites: [
+        {
+          _id: "publisherInvites:pending",
+          publisherId: "publishers:tencent",
+          status: "pending",
+        },
+      ],
+    });
 
     const result = await reclaimDeletedOrgHandleInternalHandler(ctx as never, {
       actorUserId: "users:admin",
@@ -996,6 +1092,7 @@ describe("publishers membership controls", () => {
       dryRun: false,
       hardDeleted: true,
       memberCount: 1,
+      inviteCount: 1,
     });
     expect(insert).toHaveBeenCalledWith(
       "auditLogs",
@@ -1011,6 +1108,7 @@ describe("publishers membership controls", () => {
       }),
     );
     expect(deleted).toHaveBeenCalledWith("publisherMembers:owner");
+    expect(deleted).toHaveBeenCalledWith("publisherInvites:pending");
     expect(deleted).toHaveBeenCalledWith("publishers:tencent");
   });
 
@@ -1078,6 +1176,9 @@ describe("publishers membership controls", () => {
           }
           if (table === "officialPublishers") {
             return emptyOfficialPublishersQuery();
+          }
+          if (table === "publisherInvites") {
+            return emptyPublisherInvitesQuery();
           }
           if (table !== "publisherMembers") throw new Error(`unexpected table ${table}`);
           return {
@@ -3691,7 +3792,94 @@ describe("publishers membership controls", () => {
     ).rejects.toThrow("Publisher must have at least one owner");
   });
 
-  it("adds a member when the requested handle resolves via a personal publisher", async () => {
+  it("ignores inactive owner rows when removing org owners", async () => {
+    vi.mocked(getAuthUserId).mockResolvedValue("users:owner" as never);
+    const ctx = {
+      db: {
+        get: vi.fn(async (id: string) => {
+          if (id === "users:owner") return { _id: id };
+          if (id === "users:inactive-owner") {
+            return {
+              _id: id,
+              handle: "inactive-owner",
+              deactivatedAt: 9_000,
+            };
+          }
+          if (id === "publishers:org") {
+            return {
+              _id: id,
+              kind: "org",
+              handle: "acme",
+              displayName: "Acme",
+            };
+          }
+          return null;
+        }),
+        query: vi.fn((table: string) => {
+          if (table === "publisherMembers") {
+            return {
+              withIndex: vi.fn((indexName: string) => {
+                if (indexName === "by_publisher_user") {
+                  return {
+                    unique: vi
+                      .fn()
+                      .mockResolvedValueOnce({
+                        _id: "publisherMembers:owner-actor",
+                        publisherId: "publishers:org",
+                        userId: "users:owner",
+                        role: "owner",
+                      })
+                      .mockResolvedValueOnce({
+                        _id: "publisherMembers:owner-target",
+                        publisherId: "publishers:org",
+                        userId: "users:owner",
+                        role: "owner",
+                      }),
+                  };
+                }
+                if (indexName === "by_publisher") {
+                  return {
+                    collect: vi.fn().mockResolvedValue([
+                      {
+                        _id: "publisherMembers:owner-target",
+                        publisherId: "publishers:org",
+                        userId: "users:owner",
+                        role: "owner",
+                      },
+                      {
+                        _id: "publisherMembers:inactive-owner",
+                        publisherId: "publishers:org",
+                        userId: "users:inactive-owner",
+                        role: "owner",
+                      },
+                    ]),
+                  };
+                }
+                throw new Error(`unexpected index ${indexName}`);
+              }),
+            };
+          }
+          throw new Error(`unexpected table ${table}`);
+        }),
+        delete: vi.fn(),
+        insert: vi.fn(),
+        patch: vi.fn(),
+        replace: vi.fn(),
+        normalizeId: vi.fn(),
+      },
+    };
+
+    await expect(
+      removeMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userId: "users:owner" } as never,
+      ),
+    ).rejects.toThrow("Publisher must have at least one owner");
+
+    expect(ctx.db.delete).not.toHaveBeenCalled();
+  });
+
+  it("prevents adding a new org member without invitation acceptance", async () => {
     vi.mocked(getAuthUserId).mockResolvedValue("users:owner" as never);
     const publisherMembers: Array<Record<string, unknown>> = [
       {
@@ -3879,14 +4067,1260 @@ describe("publishers membership controls", () => {
         ctx as never,
         { publisherId: "publishers:org", userHandle: "jaredforreal", role: "admin" } as never,
       ),
+    ).rejects.toThrow(
+      "New organization members must accept an invitation before they can be added",
+    );
+
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(ctx.db.patch).not.toHaveBeenCalled();
+  });
+
+  function makeInviteCtx(options?: {
+    authUserId?: string;
+    actorRole?: "owner" | "admin" | "publisher";
+    invites?: Array<Record<string, unknown>>;
+    strangerHandle?: string;
+    targetIsMember?: boolean;
+    targetRole?: "owner" | "admin" | "publisher";
+    inactiveOwnerMember?: boolean;
+  }) {
+    const publisherMembers: Array<Record<string, unknown>> = [
+      {
+        _id: "publisherMembers:owner",
+        publisherId: "publishers:org",
+        userId: "users:owner",
+        role: options?.actorRole ?? "owner",
+      },
+    ];
+    if (options?.targetIsMember) {
+      publisherMembers.push({
+        _id: "publisherMembers:target",
+        publisherId: "publishers:org",
+        userId: "users:target",
+        role: options.targetRole ?? "publisher",
+      });
+    }
+    if (options?.inactiveOwnerMember) {
+      publisherMembers.push({
+        _id: "publisherMembers:inactive-owner",
+        publisherId: "publishers:org",
+        userId: "users:inactive-owner",
+        role: "owner",
+      });
+    }
+    const publisherInvites = new Map<string, Record<string, unknown>>();
+    for (const invite of options?.invites ?? []) {
+      publisherInvites.set(String(invite._id), invite);
+    }
+    const insert = vi.fn(async (table: string, value: Record<string, unknown>) => {
+      if (table === "publisherInvites") {
+        const id = `publisherInvites:${publisherInvites.size + 1}`;
+        publisherInvites.set(id, { _id: id, ...value });
+        return id;
+      }
+      if (table === "publisherMembers") {
+        const id = `publisherMembers:${publisherMembers.length + 1}`;
+        publisherMembers.push({ _id: id, ...value });
+        return id;
+      }
+      if (table === "auditLogs") return `auditLogs:${insert.mock.calls.length}`;
+      throw new Error(`unexpected insert ${table}`);
+    });
+    const patch = vi.fn(async (id: string, value: Record<string, unknown>) => {
+      const invite = publisherInvites.get(id);
+      if (invite) {
+        Object.assign(invite, value);
+        return;
+      }
+      const member = publisherMembers.find((row) => row._id === id);
+      if (member) {
+        Object.assign(member, value);
+        return;
+      }
+      throw new Error(`unexpected patch ${id}`);
+    });
+    const ctx = {
+      db: {
+        get: vi.fn(async (id: string) => {
+          if (id === "users:owner") return { _id: id, handle: "owner", displayName: "Owner" };
+          if (id === "users:target") return { _id: id, handle: "target", displayName: "Target" };
+          if (id === "users:inactive-owner") {
+            return {
+              _id: id,
+              handle: "inactive-owner",
+              displayName: "Inactive Owner",
+              deactivatedAt: 9_000,
+            };
+          }
+          if (id === "users:stranger") {
+            return {
+              _id: id,
+              handle: options?.strangerHandle ?? "stranger",
+              displayName: "Stranger",
+            };
+          }
+          if (id === "publishers:org") {
+            return { _id: id, kind: "org", handle: "acme", displayName: "Acme" };
+          }
+          if (id === "publishers:target") {
+            return {
+              _id: id,
+              kind: "user",
+              handle: "target",
+              displayName: "Target",
+              linkedUserId: "users:target",
+            };
+          }
+          return publisherInvites.get(id) ?? null;
+        }),
+        query: vi.fn((table: string) => ({
+          withIndex: vi.fn(
+            (
+              indexName: string,
+              builder?: (q: {
+                eq: (field: string, value: string) => unknown;
+                gte: (field: string, value: number) => unknown;
+              }) => unknown,
+            ) => {
+              const fields: Record<string, string> = {};
+              const lowerBounds: Record<string, number> = {};
+              const q = {
+                eq: (field: string, value: string) => {
+                  fields[field] = value;
+                  return q;
+                },
+                gte: (field: string, value: number) => {
+                  lowerBounds[field] = value;
+                  return q;
+                },
+              };
+              builder?.(q);
+              if (table === "publisherMembers" && indexName === "by_publisher_user") {
+                return {
+                  unique: vi.fn(
+                    async () =>
+                      publisherMembers.find(
+                        (member) =>
+                          member.publisherId === fields.publisherId &&
+                          member.userId === fields.userId,
+                      ) ?? null,
+                  ),
+                };
+              }
+              if (table === "publisherMembers" && indexName === "by_publisher") {
+                return {
+                  collect: vi.fn(async () =>
+                    publisherMembers.filter((member) => member.publisherId === fields.publisherId),
+                  ),
+                };
+              }
+              if (table === "users" && indexName === "handle") {
+                return {
+                  unique: vi.fn(async () => {
+                    if (fields.handle === "owner") {
+                      return { _id: "users:owner", handle: "owner", displayName: "Owner" };
+                    }
+                    if (fields.handle === "target") {
+                      return { _id: "users:target", handle: "target", displayName: "Target" };
+                    }
+                    return null;
+                  }),
+                };
+              }
+              if (table === "publishers" && indexName === "by_handle") {
+                return { unique: vi.fn(async () => null) };
+              }
+              if (table === "publishers" && indexName === "by_linked_user") {
+                return {
+                  unique: vi.fn(async () =>
+                    fields.linkedUserId === "users:target"
+                      ? {
+                          _id: "publishers:target",
+                          kind: "user",
+                          handle: "target",
+                          displayName: "Target",
+                          linkedUserId: "users:target",
+                        }
+                      : null,
+                  ),
+                };
+              }
+              if (table === "publisherInvites" && indexName === "by_publisher_status_expires") {
+                return {
+                  take: vi.fn(async (limit: number) =>
+                    [...publisherInvites.values()]
+                      .filter(
+                        (invite) =>
+                          invite.publisherId === fields.publisherId &&
+                          invite.status === fields.status &&
+                          Number(invite.expiresAt) >= lowerBounds.expiresAt,
+                      )
+                      .sort((left, right) => Number(left.expiresAt) - Number(right.expiresAt))
+                      .slice(0, limit),
+                  ),
+                };
+              }
+              if (
+                table === "publisherInvites" &&
+                indexName === "by_publisher_target_status_expires"
+              ) {
+                return {
+                  take: vi.fn(async (limit: number) =>
+                    [...publisherInvites.values()]
+                      .filter(
+                        (invite) =>
+                          invite.publisherId === fields.publisherId &&
+                          invite.targetHandle === fields.targetHandle &&
+                          invite.status === fields.status &&
+                          Number(invite.expiresAt) >= lowerBounds.expiresAt,
+                      )
+                      .sort((left, right) => Number(left.expiresAt) - Number(right.expiresAt))
+                      .slice(0, limit),
+                  ),
+                };
+              }
+              if (table === "publisherInvites" && indexName === "by_target_handle_status_expires") {
+                return {
+                  take: vi.fn(async (limit: number) =>
+                    [...publisherInvites.values()]
+                      .filter(
+                        (invite) =>
+                          invite.targetHandle === fields.targetHandle &&
+                          invite.status === fields.status &&
+                          Number(invite.expiresAt) >= lowerBounds.expiresAt,
+                      )
+                      .sort((left, right) => Number(left.expiresAt) - Number(right.expiresAt))
+                      .slice(0, limit),
+                  ),
+                };
+              }
+              if (
+                table === "publisherInvites" &&
+                indexName === "by_publisher_target_user_status_expires"
+              ) {
+                return {
+                  take: vi.fn(async (limit: number) =>
+                    [...publisherInvites.values()]
+                      .filter(
+                        (invite) =>
+                          invite.publisherId === fields.publisherId &&
+                          invite.targetUserId === fields.targetUserId &&
+                          invite.status === fields.status &&
+                          Number(invite.expiresAt) >= lowerBounds.expiresAt,
+                      )
+                      .sort((left, right) => Number(left.expiresAt) - Number(right.expiresAt))
+                      .slice(0, limit),
+                  ),
+                };
+              }
+              if (table === "publisherInvites" && indexName === "by_target_user_status_expires") {
+                return {
+                  take: vi.fn(async (limit: number) =>
+                    [...publisherInvites.values()]
+                      .filter(
+                        (invite) =>
+                          invite.targetUserId === fields.targetUserId &&
+                          invite.status === fields.status &&
+                          Number(invite.expiresAt) >= lowerBounds.expiresAt,
+                      )
+                      .sort((left, right) => Number(left.expiresAt) - Number(right.expiresAt))
+                      .slice(0, limit),
+                  ),
+                };
+              }
+              throw new Error(`unexpected query ${table}.${indexName}`);
+            },
+          ),
+        })),
+        insert,
+        patch,
+        delete: vi.fn(),
+        replace: vi.fn(),
+        normalizeId: vi.fn(),
+      },
+    };
+    vi.mocked(getAuthUserId).mockResolvedValue((options?.authUserId ?? "users:owner") as never);
+    return { ctx, insert, patch, publisherInvites, publisherMembers };
+  }
+
+  it("creates pending organization member invitations instead of membership rows", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx();
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).resolves.toEqual({ ok: true, inviteId: "publisherInvites:1" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).toHaveBeenCalledWith(
+      "publisherInvites",
+      expect.objectContaining({
+        publisherId: "publishers:org",
+        inviterUserId: "users:owner",
+        targetHandle: "target",
+        targetUserId: "users:target",
+        role: "admin",
+        status: "pending",
+      }),
+    );
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(insert).toHaveBeenCalledWith(
+      "auditLogs",
+      expect.objectContaining({
+        action: "publisher.member.invite.create",
+        targetId: "publishers:org",
+      }),
+    );
+  });
+
+  it("prevents admins from inviting new org owners", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx({ actorRole: "admin" });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "owner" } as never,
+        ),
+      ).rejects.toThrow("Only org owners can invite new owners");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherInvites", expect.anything());
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+  });
+
+  it("prevents admins from demoting org owners through member role updates", async () => {
+    const { ctx, patch } = makeInviteCtx({
+      actorRole: "admin",
+      targetIsMember: true,
+      targetRole: "owner",
+    });
+
+    await expect(
+      addMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userHandle: "target", role: "publisher" } as never,
+      ),
+    ).rejects.toThrow("Only org owners can demote owners");
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("prevents demoting the last remaining org owner through member role updates", async () => {
+    const { ctx, patch } = makeInviteCtx();
+
+    await expect(
+      addMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userHandle: "owner", role: "admin" } as never,
+      ),
+    ).rejects.toThrow("Publisher must have at least one owner");
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("ignores inactive owner rows when demoting org owners", async () => {
+    const { ctx, patch } = makeInviteCtx({ inactiveOwnerMember: true });
+
+    await expect(
+      addMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userHandle: "owner", role: "admin" } as never,
+      ),
+    ).rejects.toThrow("Publisher must have at least one owner");
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("lets org owners demote another owner when one owner remains", async () => {
+    const { ctx, patch } = makeInviteCtx({ targetIsMember: true, targetRole: "owner" });
+
+    await expect(
+      addMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+      ),
     ).resolves.toEqual({ ok: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "publisherMembers:target",
+      expect.objectContaining({ role: "admin" }),
+    );
+  });
+
+  it("rejects invitations for unresolved handles", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx();
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "typo-target", role: "admin" } as never,
+        ),
+      ).rejects.toThrow('User "@typo-target" not found');
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherInvites", expect.anything());
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+  });
+
+  it("rejects duplicate active member invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:existing",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).rejects.toThrow("@target already has a pending invitation");
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("rejects duplicate active invitations when an older pending invite is expired", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:expired",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          expiresAt: 9_000,
+        },
+        {
+          _id: "publisherInvites:active",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).rejects.toThrow("@target already has a pending invitation");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherInvites", expect.anything());
+  });
+
+  it("allows a fresh invitation when the only matching pending invite is expired", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:expired",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          expiresAt: 9_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).resolves.toEqual({ ok: true, inviteId: "publisherInvites:2" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).toHaveBeenCalledWith(
+      "publisherInvites",
+      expect.objectContaining({
+        publisherId: "publishers:org",
+        targetHandle: "target",
+        targetUserId: "users:target",
+        role: "admin",
+      }),
+    );
+  });
+
+  it("rejects duplicate active invitations for the same resolved user", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:active",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target-personal",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).rejects.toThrow("@target already has a pending invitation");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherInvites", expect.anything());
+  });
+
+  it("allows a fresh invitation when a handle was reclaimed from another pending invite target", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:old-target",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:stranger",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        createMemberInviteHandler(
+          ctx as never,
+          { publisherId: "publishers:org", userHandle: "target", role: "admin" } as never,
+        ),
+      ).resolves.toEqual({ ok: true, inviteId: "publisherInvites:2" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).toHaveBeenCalledWith(
+      "publisherInvites",
+      expect.objectContaining({
+        publisherId: "publishers:org",
+        targetHandle: "target",
+        targetUserId: "users:target",
+        role: "admin",
+      }),
+    );
+  });
+
+  it("accepts a matching invitation and creates the membership row", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert, patch } = makeInviteCtx({
+      authUserId: "users:target",
+      invites: [
+        {
+          _id: "publisherInvites:accepted",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        acceptMemberInviteHandler(
+          ctx as never,
+          {
+            inviteId: "publisherInvites:accepted",
+          } as never,
+        ),
+      ).resolves.toEqual({ ok: true });
+    } finally {
+      nowSpy.mockRestore();
+    }
 
     expect(insert).toHaveBeenCalledWith(
       "publisherMembers",
       expect.objectContaining({
         publisherId: "publishers:org",
-        userId: "users:jared",
+        userId: "users:target",
         role: "admin",
+      }),
+    );
+    expect(patch).toHaveBeenCalledWith(
+      "publisherInvites:accepted",
+      expect.objectContaining({
+        status: "accepted",
+        acceptedByUserId: "users:target",
+      }),
+    );
+  });
+
+  it("rejects accepting expired pending invitations before they are pruned", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert, patch } = makeInviteCtx({
+      authUserId: "users:target",
+      invites: [
+        {
+          _id: "publisherInvites:expired",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          expiresAt: 9_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        acceptMemberInviteHandler(
+          ctx as never,
+          {
+            inviteId: "publisherInvites:expired",
+          } as never,
+        ),
+      ).rejects.toThrow("Invitation has expired");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("does not let stale invitations overwrite an existing member role", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert, patch, publisherMembers } = makeInviteCtx({
+      authUserId: "users:target",
+      targetIsMember: true,
+      invites: [
+        {
+          _id: "publisherInvites:accepted",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "owner",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        acceptMemberInviteHandler(
+          ctx as never,
+          {
+            inviteId: "publisherInvites:accepted",
+          } as never,
+        ),
+      ).resolves.toEqual({ ok: true });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(publisherMembers).toContainEqual(
+      expect.objectContaining({
+        _id: "publisherMembers:target",
+        role: "publisher",
+      }),
+    );
+    expect(patch).toHaveBeenCalledWith(
+      "publisherInvites:accepted",
+      expect.objectContaining({
+        status: "accepted",
+        acceptedByUserId: "users:target",
+      }),
+    );
+  });
+
+  it("does not let non-target users accept member invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert, patch } = makeInviteCtx({
+      authUserId: "users:stranger",
+      invites: [
+        {
+          _id: "publisherInvites:target",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+
+    try {
+      await expect(
+        acceptMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:target" } as never),
+      ).rejects.toThrow("Forbidden");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("does not let a reclaimed handle accept an invitation bound to another user", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, insert, patch } = makeInviteCtx({
+      authUserId: "users:stranger",
+      strangerHandle: "target",
+      invites: [
+        {
+          _id: "publisherInvites:target",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+
+    try {
+      await expect(
+        acceptMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:target" } as never),
+      ).rejects.toThrow("Forbidden");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(insert).not.toHaveBeenCalledWith("publisherMembers", expect.anything());
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("does not list handle-matched invitations bound to another user", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx } = makeInviteCtx({
+      authUserId: "users:stranger",
+      strangerHandle: "target",
+      invites: [
+        {
+          _id: "publisherInvites:bound-to-original",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 8_000,
+          updatedAt: 8_000,
+          expiresAt: 20_000,
+        },
+        {
+          _id: "publisherInvites:handle-only",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+
+    try {
+      await expect(listMyInvitesHandler(ctx as never, {})).resolves.toEqual([
+        expect.objectContaining({ _id: "publisherInvites:handle-only" }),
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("lets the invite target decline member invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, patch, insert } = makeInviteCtx({
+      authUserId: "users:target",
+      invites: [
+        {
+          _id: "publisherInvites:target",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        declineMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:target" } as never),
+      ).resolves.toEqual({ ok: true });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(patch).toHaveBeenCalledWith(
+      "publisherInvites:target",
+      expect.objectContaining({
+        status: "declined",
+        declinedByUserId: "users:target",
+        targetUserId: "users:target",
+      }),
+    );
+    expect(insert).toHaveBeenCalledWith(
+      "auditLogs",
+      expect.objectContaining({
+        action: "publisher.member.invite.decline",
+        targetId: "publishers:org",
+      }),
+    );
+  });
+
+  it("does not let non-target users decline member invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, patch, insert } = makeInviteCtx({
+      authUserId: "users:stranger",
+      invites: [
+        {
+          _id: "publisherInvites:target",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+
+    try {
+      await expect(
+        declineMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:target" } as never),
+      ).rejects.toThrow("Forbidden");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalledWith("auditLogs", expect.anything());
+  });
+
+  it("lets org managers revoke pending member invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, patch, insert } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:pending",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        revokeMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:pending" } as never),
+      ).resolves.toEqual({ ok: true });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(patch).toHaveBeenCalledWith(
+      "publisherInvites:pending",
+      expect.objectContaining({
+        status: "revoked",
+        revokedByUserId: "users:owner",
+      }),
+    );
+    expect(insert).toHaveBeenCalledWith(
+      "auditLogs",
+      expect.objectContaining({ action: "publisher.member.invite.revoke" }),
+    );
+  });
+
+  it("prevents admins from revoking pending owner invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx, patch } = makeInviteCtx({
+      actorRole: "admin",
+      invites: [
+        {
+          _id: "publisherInvites:pending",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "owner",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        revokeMemberInviteHandler(ctx as never, { inviteId: "publisherInvites:pending" } as never),
+      ).rejects.toThrow("Only org owners can revoke owner invitations");
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("lists only pending non-expired publisher invitations for org managers", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx } = makeInviteCtx({
+      invites: [
+        {
+          _id: "publisherInvites:active",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "admin",
+          status: "pending",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+        {
+          _id: "publisherInvites:expired",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "pending",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          expiresAt: 9_000,
+        },
+        {
+          _id: "publisherInvites:revoked",
+          publisherId: "publishers:org",
+          inviterUserId: "users:owner",
+          targetHandle: "target",
+          targetUserId: "users:target",
+          role: "publisher",
+          status: "revoked",
+          createdAt: 9_000,
+          updatedAt: 9_000,
+          expiresAt: 20_000,
+        },
+      ],
+    });
+    try {
+      await expect(
+        listInvitesForPublisherHandler(
+          ctx as never,
+          {
+            publisherId: "publishers:org",
+          } as never,
+        ),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          _id: "publisherInvites:active",
+          targetHandle: "target",
+          role: "admin",
+          publisher: expect.objectContaining({ handle: "acme" }),
+          inviter: expect.objectContaining({ handle: "owner" }),
+          targetUser: expect.objectContaining({ handle: "target" }),
+        }),
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("prevents publisher-role members from listing pending publisher invitations", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const { ctx } = makeInviteCtx({ actorRole: "publisher" });
+    try {
+      await expect(
+        listInvitesForPublisherHandler(
+          ctx as never,
+          {
+            publisherId: "publishers:org",
+          } as never,
+        ),
+      ).rejects.toThrow("Forbidden");
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("lets org owners update an existing member role", async () => {
+    vi.mocked(getAuthUserId).mockResolvedValue("users:owner" as never);
+    const publisherMembers: Array<Record<string, unknown>> = [
+      {
+        _id: "publisherMembers:owner",
+        publisherId: "publishers:org",
+        userId: "users:owner",
+        role: "owner",
+      },
+      {
+        _id: "publisherMembers:jared",
+        publisherId: "publishers:org",
+        userId: "users:jared",
+        role: "publisher",
+      },
+    ];
+    const insert = vi.fn(async (table: string) => {
+      if (table === "auditLogs") return "auditLogs:1";
+      throw new Error(`unexpected insert ${table}`);
+    });
+    const patch = vi.fn(async () => {});
+    const ctx = {
+      db: {
+        get: vi.fn(async (id: string) => {
+          if (id === "users:owner") return { _id: id };
+          if (id === "users:jared") {
+            return {
+              _id: id,
+              _creationTime: 1,
+              handle: "jaredforreal",
+              name: "JaredForReal",
+              displayName: "Jared",
+              trustedPublisher: false,
+              createdAt: 1,
+              updatedAt: 1,
+            };
+          }
+          if (id === "publishers:org") {
+            return {
+              _id: id,
+              kind: "org",
+              handle: "zai-org",
+              displayName: "ZAI Org",
+            };
+          }
+          if (id === "publishers:jaredforreal") {
+            return {
+              _id: id,
+              _creationTime: 1,
+              kind: "user",
+              handle: "jaredforreal",
+              displayName: "Jared",
+              linkedUserId: "users:jared",
+              trustedPublisher: false,
+              createdAt: 1,
+              updatedAt: 1,
+            };
+          }
+          return null;
+        }),
+        query: vi.fn((table: string) => {
+          if (table === "publisherMembers") {
+            return {
+              withIndex: vi.fn(
+                (
+                  indexName: string,
+                  builder?: (q: { eq: (field: string, value: string) => unknown }) => unknown,
+                ) => {
+                  if (indexName !== "by_publisher_user") {
+                    throw new Error(`unexpected index ${indexName}`);
+                  }
+                  let publisherId = "";
+                  let userId = "";
+                  const q = {
+                    eq: (field: string, value: string) => {
+                      if (field === "publisherId") publisherId = value;
+                      if (field === "userId") userId = value;
+                      return q;
+                    },
+                  };
+                  builder?.(q);
+                  return {
+                    unique: vi.fn(
+                      async () =>
+                        publisherMembers.find(
+                          (member) =>
+                            member.publisherId === publisherId && member.userId === userId,
+                        ) ?? null,
+                    ),
+                  };
+                },
+              ),
+            };
+          }
+          if (table === "users") {
+            return {
+              withIndex: vi.fn(
+                (
+                  indexName: string,
+                  builder?: (q: { eq: (field: string, value: string) => unknown }) => unknown,
+                ) => {
+                  if (indexName !== "handle") {
+                    throw new Error(`unexpected index ${indexName}`);
+                  }
+                  let handle = "";
+                  const q = {
+                    eq: (field: string, value: string) => {
+                      if (field === "handle") handle = value;
+                      return q;
+                    },
+                  };
+                  builder?.(q);
+                  return {
+                    unique: vi.fn(async () =>
+                      handle === "jaredforreal"
+                        ? {
+                            _id: "users:jared",
+                            handle: "jaredforreal",
+                            displayName: "Jared",
+                          }
+                        : null,
+                    ),
+                  };
+                },
+              ),
+            };
+          }
+          if (table === "publishers") {
+            return {
+              withIndex: vi.fn(
+                (
+                  indexName: string,
+                  builder?: (q: { eq: (field: string, value: string) => unknown }) => unknown,
+                ) => {
+                  let linkedUserId = "";
+                  const q = {
+                    eq: (field: string, value: string) => {
+                      if (field === "linkedUserId") linkedUserId = value;
+                      return q;
+                    },
+                  };
+                  builder?.(q);
+                  return {
+                    unique: vi.fn(async () => {
+                      if (indexName === "by_linked_user" && linkedUserId === "users:jared") {
+                        return {
+                          _id: "publishers:jaredforreal",
+                          _creationTime: 1,
+                          kind: "user",
+                          handle: "jaredforreal",
+                          displayName: "Jared",
+                          linkedUserId: "users:jared",
+                          trustedPublisher: false,
+                          createdAt: 1,
+                          updatedAt: 1,
+                        };
+                      }
+                      return null;
+                    }),
+                  };
+                },
+              ),
+            };
+          }
+          throw new Error(`unexpected table ${table}`);
+        }),
+        insert,
+        patch,
+        delete: vi.fn(),
+        replace: vi.fn(),
+        normalizeId: vi.fn(),
+      },
+    };
+
+    await expect(
+      addMemberHandler(
+        ctx as never,
+        { publisherId: "publishers:org", userHandle: "jaredforreal", role: "admin" } as never,
+      ),
+    ).resolves.toEqual({ ok: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      "publisherMembers:jared",
+      expect.objectContaining({ role: "admin" }),
+    );
+    expect(insert).toHaveBeenCalledWith(
+      "auditLogs",
+      expect.objectContaining({
+        action: "publisher.member.upsert",
+        targetId: "publishers:org",
+        metadata: {
+          memberUserId: "users:jared",
+          memberHandle: "jaredforreal",
+          role: "admin",
+        },
       }),
     );
   });
@@ -6624,7 +8058,11 @@ describe("legacy publisher migration", () => {
       {
         db: {
           get: vi.fn(async (id: string) =>
-            id === "users:admin" ? { _id: id, role: "admin" } : null,
+            id === "users:admin"
+              ? { _id: id, role: "admin" }
+              : id === "users:vincent"
+                ? { _id: id, handle: "vincentkoc" }
+                : null,
           ),
           query,
           insert: vi.fn(async (table: string, value: Record<string, unknown>) => {
