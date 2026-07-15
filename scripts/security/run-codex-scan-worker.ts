@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -95,6 +95,28 @@ type CodexCommandDiagnostic = {
   stdout?: string;
 };
 
+type ClawScanCommandDiagnostic = {
+  args?: string[];
+  artifactPath?: string;
+  exitCode?: number | null;
+  rawArtifact?: string;
+  stderr?: string;
+  stdout?: string;
+  mapping?: {
+    judge?: {
+      outputSchemaSha256?: string;
+      promptSha256?: string;
+      status?: string;
+      verdict?: string;
+    };
+    scanners?: {
+      skillspectorStatus?: string;
+      virustotalStatus?: string;
+      staticStatus?: string;
+    };
+  };
+};
+
 type ClawScanShadowDiagnostic = {
   artifactPath?: string;
   command?: string[];
@@ -124,6 +146,7 @@ type ClawScanShadowDiagnostic = {
 };
 
 type JobDiagnosticInput = {
+  clawscan?: ClawScanCommandDiagnostic;
   clawscanShadow?: ClawScanShadowDiagnostic;
   codex?: CodexCommandDiagnostic;
   completedAt: number;
@@ -149,6 +172,7 @@ type ProcessJobResult = {
 const DEFAULT_BATCH_LIMIT = 4;
 const DEFAULT_MAX_RUNTIME_MS = 40 * 60 * 1000;
 const DEFAULT_CODEX_SCAN_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_CLAWSCAN_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_CLAWSCAN_SHADOW_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_CLAWSCAN_SHADOW_SANDBOX_IMAGE =
   "ghcr.io/openclaw/clawscan-runtime@sha256:d85bfe671fe597edc6802f9d6a07dd91b59c69cec4faa6e8f89778037507dc3b";
@@ -186,6 +210,77 @@ const ARTIFACT_SIGNAL_FILE_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
 ]);
+
+type ClawHubOutputSchemaContract = {
+  allowedConfidence: Set<string>;
+  allowedDimensionStatus: Set<string>;
+  allowedVerdict: Set<string>;
+  requiredDimensionFieldKeys: string[];
+  requiredDimensionKeys: string[];
+  requiredFindingKeys: string[];
+  requiredResultKeys: string[];
+};
+
+function readSchemaStringArray(value: unknown, context: string) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${context} was missing`);
+  }
+  const values = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  if (values.length !== value.length) {
+    throw new Error(`${context} must be a string array`);
+  }
+  return values;
+}
+
+function loadClawHubOutputSchemaContract(path: string): ClawHubOutputSchemaContract {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Failed to parse output schema at ${path}`, { cause: error });
+  }
+  const schema = asRecord(parsed);
+  const properties = asRecord(schema?.properties);
+  const dimensions = asRecord(properties?.dimensions);
+  const dimensionProperties = asRecord(dimensions?.properties);
+  const requiredDimensionKeys = readSchemaStringArray(
+    dimensions?.required,
+    "Output schema dimensions.required",
+  );
+  const firstDimension = asRecord(dimensionProperties?.[requiredDimensionKeys[0] ?? ""]);
+  const firstDimensionProperties = asRecord(firstDimension?.properties);
+  const dimensionStatus = asRecord(firstDimensionProperties?.status);
+  const findings = asRecord(properties?.scan_findings_in_context);
+  const findingItems = asRecord(findings?.items);
+  const verdictSchema = asRecord(properties?.verdict);
+  const confidenceSchema = asRecord(properties?.confidence);
+
+  return {
+    allowedConfidence: new Set(
+      readSchemaStringArray(confidenceSchema?.enum, "Output schema confidence enum"),
+    ),
+    allowedDimensionStatus: new Set(
+      readSchemaStringArray(dimensionStatus?.enum, "Output schema dimension status enum"),
+    ),
+    allowedVerdict: new Set(
+      readSchemaStringArray(verdictSchema?.enum, "Output schema verdict enum"),
+    ),
+    requiredDimensionFieldKeys: readSchemaStringArray(
+      firstDimension?.required,
+      "Output schema dimension required fields",
+    ),
+    requiredDimensionKeys,
+    requiredFindingKeys: readSchemaStringArray(
+      findingItems?.required,
+      "Output schema finding required fields",
+    ),
+    requiredResultKeys: readSchemaStringArray(schema?.required, "Output schema required fields"),
+  };
+}
+
+const CLAWHUB_OUTPUT_SCHEMA_CONTRACT = loadClawHubOutputSchemaContract(schemaPath);
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -245,6 +340,10 @@ function redactDiagnosticText(value: string, maxChars = MAX_DIAGNOSTIC_TEXT_CHAR
   return redactWorkerPublicText(value, maxChars);
 }
 
+function redactDiagnosticTextUncapped(value: string) {
+  return redactDiagnosticText(value, Number.POSITIVE_INFINITY);
+}
+
 function redactDiagnosticError(value: string) {
   return redactDiagnosticText(value).replace(
     /(Codex result did not match ClawScan schema)(?::[\s\S]*)?/i,
@@ -254,6 +353,29 @@ function redactDiagnosticError(value: string) {
 
 function sanitizeWorkerErrorMessage(value: string) {
   return redactWorkerPublicErrorMessage(redactDiagnosticError(value));
+}
+
+function redactEvidenceJsonValue(value: unknown, path: string[] = []): unknown {
+  if (isDiagnosticSecretPath(path)) return "[redacted-secret]";
+  if (typeof value === "string") return redactDiagnosticTextUncapped(value);
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactEvidenceJsonValue(entry, [...path, "*"]));
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+      entryKey,
+      redactEvidenceJsonValue(entryValue, [...path, entryKey]),
+    ]),
+  );
+}
+
+function redactEvidenceText(value: string, rootPath: string[]) {
+  try {
+    return JSON.stringify(redactEvidenceJsonValue(JSON.parse(value), rootPath), null, 2);
+  } catch {
+    return redactDiagnosticTextUncapped(value);
+  }
 }
 
 const DIAGNOSTIC_CONTENT_TEXT_KEYS = new Set([
@@ -281,6 +403,25 @@ const DIAGNOSTIC_CONTENT_TEXT_KEYS = new Set([
   "userimpact",
 ]);
 const DIAGNOSTIC_PUBLIC_TEXT_PATHS = new Set([
+  "clawscanartifact.profile",
+  "clawscanartifact.schemaversion",
+  "clawscanartifact.judge.status",
+  "clawscanartifact.judge.promptpath",
+  "clawscanartifact.judge.outputschemapath",
+  "clawscanartifact.judge.promptsha",
+  "clawscanartifact.judge.outputschemasha",
+  "clawscanartifact.judge.result.verdict",
+  "clawscanartifact.judge.result.confidence",
+  "clawscanartifact.judge.result.summary",
+  "clawscanartifact.scanners.*.status",
+  "clawscanartifact.scanners.*.outputpath",
+  "clawscanmapping.judge.status",
+  "clawscanmapping.judge.verdict",
+  "clawscanmapping.judge.promptsha256",
+  "clawscanmapping.judge.outputschemasha256",
+  "clawscanmapping.scanners.skillspectorstatus",
+  "clawscanmapping.scanners.virustotalstatus",
+  "clawscanmapping.scanners.staticstatus",
   "codexresult.verdict",
   "codexstdout.item.id",
   "codexstdout.item.type",
@@ -332,6 +473,7 @@ function shouldPreserveDiagnosticText(path: string[], original: string, redacted
   return (
     original === redacted &&
     (DIAGNOSTIC_PUBLIC_TEXT_PATHS.has(key) ||
+      key.startsWith("clawscanartifact.env.") ||
       key.startsWith("clawscanshadow.shadow.scannerstatuses.")) &&
     DIAGNOSTIC_PUBLIC_TEXT_VALUE_PATTERN.test(redacted)
   );
@@ -381,6 +523,116 @@ function redactStructuredDiagnosticText(value: string, rootKey: string) {
   }
 }
 
+function normalizedScannerOutputPath(value: string) {
+  const normalized = value
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    normalized.split("/").some((segment) => segment === "..") ||
+    !/^[A-Za-z0-9._/-]+$/.test(normalized)
+  ) {
+    return undefined;
+  }
+  return normalized;
+}
+
+type ClawScanScannerOutputReference = {
+  scanner: string;
+  outputPath: string;
+};
+
+function clawScanScannerOutputReferences(rawArtifact: string): ClawScanScannerOutputReference[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawArtifact);
+  } catch {
+    return [];
+  }
+  const artifact = asRecord(parsed);
+  const scanners = asRecord(artifact?.scanners);
+  if (!scanners) return [];
+  const references: ClawScanScannerOutputReference[] = [];
+  for (const [scanner, value] of Object.entries(scanners)) {
+    const scannerRecord = asRecord(value);
+    const outputPath =
+      readString(scannerRecord ?? {}, ["outputPath", "output_path", "outputpath"]) ?? undefined;
+    if (outputPath) {
+      references.push({ scanner, outputPath });
+    }
+  }
+  return references;
+}
+
+function safeScannerOutputSourcePath(artifactPath: string, relativeOutputPath: string) {
+  const artifactDir = resolve(dirname(artifactPath));
+  const source = resolve(artifactDir, relativeOutputPath);
+  if (!source.startsWith(`${artifactDir}/`) && source !== artifactDir) {
+    throw new Error(
+      `Unsafe scanner output path: ${safeWorkerArtifactPathLabel(relativeOutputPath)}`,
+    );
+  }
+  return source;
+}
+
+type CopiedScannerOutputDiagnostic = {
+  scanner: string;
+  outputPath: string;
+  diagnosticPath?: string;
+  status: "copied" | "missing" | "skipped";
+};
+
+async function copyClawScanScannerOutputs(input: {
+  artifactPath: string;
+  rawArtifact: string;
+  jobDir: string;
+}): Promise<CopiedScannerOutputDiagnostic[]> {
+  const references = clawScanScannerOutputReferences(input.rawArtifact);
+  const copied: CopiedScannerOutputDiagnostic[] = [];
+  for (const reference of references) {
+    const normalizedOutputPath = normalizedScannerOutputPath(reference.outputPath);
+    if (!normalizedOutputPath) {
+      copied.push({
+        scanner: reference.scanner,
+        outputPath: safeWorkerArtifactPathLabel(reference.outputPath),
+        status: "skipped",
+      });
+      continue;
+    }
+    const sourcePath = safeScannerOutputSourcePath(input.artifactPath, normalizedOutputPath);
+    if (!(await fileExists(sourcePath))) {
+      copied.push({
+        scanner: reference.scanner,
+        outputPath: normalizedOutputPath,
+        status: "missing",
+      });
+      continue;
+    }
+    const diagnosticPath = join("clawscan-scanner-outputs", normalizedOutputPath);
+    const destinationPath = join(input.jobDir, diagnosticPath);
+    await mkdir(dirname(destinationPath), { recursive: true });
+    const scannerOutput = await readFile(sourcePath, "utf8");
+    const redactedOutput = redactEvidenceText(scannerOutput, [
+      "clawscanScannerOutput",
+      reference.scanner,
+    ]);
+    await writeFile(
+      destinationPath,
+      redactedOutput.endsWith("\n") ? redactedOutput : `${redactedOutput}\n`,
+    );
+    copied.push({
+      diagnosticPath,
+      outputPath: normalizedOutputPath,
+      scanner: reference.scanner,
+      status: "copied",
+    });
+  }
+  return copied;
+}
+
 function pickIdentity(record: unknown, fields: string[]) {
   if (!record || typeof record !== "object") return undefined;
   const source = record as Record<string, unknown>;
@@ -425,9 +677,19 @@ async function writeDiagnosticText(
   fileName: string,
   value: string | undefined,
   rootKey: string,
+  options?: {
+    maxChars?: number;
+    preRedacted?: boolean;
+    structured?: boolean;
+  },
 ) {
   if (value === undefined) return undefined;
-  const redacted = redactStructuredDiagnosticText(value, rootKey);
+  const redacted =
+    options?.preRedacted === true
+      ? value
+      : options?.structured === false
+        ? redactDiagnosticText(value, options.maxChars)
+        : redactStructuredDiagnosticText(value, rootKey);
   await writeFile(join(jobDir, fileName), redacted.endsWith("\n") ? redacted : `${redacted}\n`);
   return fileName;
 }
@@ -473,6 +735,39 @@ export async function writeJobDiagnostic(input: JobDiagnosticInput) {
     input.skillSpector?.rawResult,
     "skillSpectorResult",
   );
+  const clawscanStdoutPath = await writeDiagnosticText(
+    jobDir,
+    "clawscan.stdout.redacted.log",
+    input.clawscan?.stdout,
+    "clawscanStdout",
+  );
+  const clawscanStderrPath = await writeDiagnosticText(
+    jobDir,
+    "clawscan.stderr.redacted.log",
+    input.clawscan?.stderr,
+    "clawscanStderr",
+  );
+  const clawscanArtifactPath = await writeDiagnosticText(
+    jobDir,
+    "clawscan-artifact.redacted.json",
+    input.clawscan?.rawArtifact
+      ? redactEvidenceText(input.clawscan.rawArtifact, ["clawscanArtifact"])
+      : undefined,
+    "clawscanArtifact",
+    {
+      maxChars: Number.POSITIVE_INFINITY,
+      preRedacted: true,
+      structured: false,
+    },
+  );
+  const clawscanScannerOutputs =
+    input.clawscan?.rawArtifact && input.clawscan?.artifactPath
+      ? await copyClawScanScannerOutputs({
+          artifactPath: input.clawscan.artifactPath,
+          jobDir,
+          rawArtifact: input.clawscan.rawArtifact,
+        })
+      : [];
 
   const diagnostic = {
     completedAt: input.completedAt,
@@ -488,6 +783,14 @@ export async function writeJobDiagnostic(input: JobDiagnosticInput) {
     },
     llmAnalysis: redactDiagnosticValue(input.llmAnalysis, ["llmAnalysis"]),
     runId: input.runId,
+    clawscan: input.clawscan
+      ? {
+          ...(asRecord(redactDiagnosticValue(input.clawscan, ["clawscan"])) ?? {}),
+          mapping: input.clawscan.mapping
+            ? redactDiagnosticValue(input.clawscan.mapping, ["clawscanMapping"])
+            : undefined,
+        }
+      : undefined,
     clawscanShadow: input.clawscanShadow
       ? redactDiagnosticValue(input.clawscanShadow, ["clawscanShadow"])
       : undefined,
@@ -510,6 +813,17 @@ export async function writeJobDiagnostic(input: JobDiagnosticInput) {
       rawResultPath: skillSpectorRawResultPath,
       stderrPath: skillSpectorStderrPath,
       stdoutPath: skillSpectorStdoutPath,
+    },
+    clawscanResult: {
+      args: input.clawscan?.args,
+      exitCode: input.clawscan?.exitCode,
+      mapping: input.clawscan?.mapping
+        ? redactDiagnosticValue(input.clawscan.mapping, ["clawscanMapping"])
+        : undefined,
+      rawArtifactPath: clawscanArtifactPath,
+      scannerOutputFiles: clawscanScannerOutputs,
+      stderrPath: clawscanStderrPath,
+      stdoutPath: clawscanStdoutPath,
     },
   };
 
@@ -1186,7 +1500,14 @@ function verdictToStatus(verdict: string) {
   return verdict === "benign" ? "clean" : verdict;
 }
 
-function toStoredLlmAnalysis(parsed: NonNullable<ReturnType<typeof parseLlmEvalResponse>>) {
+function toStoredLlmAnalysis(
+  parsed: NonNullable<ReturnType<typeof parseLlmEvalResponse>>,
+  options?: { checkedAt?: number; model?: string; omitModel?: boolean },
+) {
+  const model =
+    options?.omitModel === true
+      ? undefined
+      : (options?.model ?? process.env.CODEX_SECURITY_SCAN_MODEL ?? "gpt-5.5");
   return {
     status: verdictToStatus(parsed.verdict),
     verdict: parsed.verdict,
@@ -1195,14 +1516,19 @@ function toStoredLlmAnalysis(parsed: NonNullable<ReturnType<typeof parseLlmEvalR
     dimensions: parsed.dimensions,
     guidance: parsed.guidance,
     findings: parsed.findings || undefined,
-    model: process.env.CODEX_SECURITY_SCAN_MODEL ?? "gpt-5.5",
-    checkedAt: Date.now(),
+    ...(model ? { model } : {}),
+    checkedAt: options?.checkedAt ?? Date.now(),
   };
 }
 
 function codexScanTimeoutMs() {
   const parsed = Number(process.env.CODEX_SECURITY_SCAN_TIMEOUT_MS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CODEX_SCAN_TIMEOUT_MS;
+}
+
+function clawScanTimeoutMs() {
+  const parsed = Number(process.env.CODEX_SECURITY_SCAN_CLAWSCAN_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CLAWSCAN_TIMEOUT_MS;
 }
 
 function clawScanShadowTimeoutMs() {
@@ -1213,6 +1539,239 @@ function clawScanShadowTimeoutMs() {
 function clawScanShadowEnabled() {
   const value = process.env.CODEX_SECURITY_SCAN_SHADOW_CLAWSCAN?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";
+}
+
+type ScanImplementation = "codex" | "clawscan";
+
+const REQUIRED_CLAWHUB_RESULT_KEYS = CLAWHUB_OUTPUT_SCHEMA_CONTRACT.requiredResultKeys;
+const REQUIRED_CLAWHUB_DIMENSION_KEYS = CLAWHUB_OUTPUT_SCHEMA_CONTRACT.requiredDimensionKeys;
+const REQUIRED_CLAWHUB_DIMENSION_FIELD_KEYS =
+  CLAWHUB_OUTPUT_SCHEMA_CONTRACT.requiredDimensionFieldKeys;
+const REQUIRED_CLAWHUB_FINDING_KEYS = CLAWHUB_OUTPUT_SCHEMA_CONTRACT.requiredFindingKeys;
+const ALLOWED_CLAWHUB_DIMENSION_STATUSES = CLAWHUB_OUTPUT_SCHEMA_CONTRACT.allowedDimensionStatus;
+
+function assertExactObjectKeys(
+  record: Record<string, unknown>,
+  expectedKeys: readonly string[],
+  context: string,
+) {
+  const unexpected = Object.keys(record).filter((key) => !expectedKeys.includes(key));
+  if (unexpected.length > 0) {
+    throw new Error(`${context} included unexpected field(s): ${unexpected.join(", ")}`);
+  }
+  const missing = expectedKeys.filter((key) => record[key] === undefined);
+  if (missing.length > 0) {
+    throw new Error(`${context} missing required field(s): ${missing.join(", ")}`);
+  }
+}
+
+function validateClawScanJudgeResultShape(result: Record<string, unknown>) {
+  assertExactObjectKeys(result, REQUIRED_CLAWHUB_RESULT_KEYS, "ClawScan judge result");
+
+  const verdict = readString(result, ["verdict"]);
+  if (!verdict || !CLAWHUB_OUTPUT_SCHEMA_CONTRACT.allowedVerdict.has(verdict)) {
+    throw new Error(`ClawScan judge result verdict was ${verdict ?? "missing"}`);
+  }
+  const confidence = readString(result, ["confidence"]);
+  if (!confidence || !CLAWHUB_OUTPUT_SCHEMA_CONTRACT.allowedConfidence.has(confidence)) {
+    throw new Error(`ClawScan judge result confidence was ${confidence ?? "missing"}`);
+  }
+  if (typeof result.summary !== "string") {
+    throw new Error("ClawScan judge result summary was missing");
+  }
+  if (typeof result.user_guidance !== "string") {
+    throw new Error("ClawScan judge result user_guidance was missing");
+  }
+
+  const dimensions = asRecord(result.dimensions);
+  if (!dimensions) {
+    throw new Error("ClawScan judge result dimensions was missing");
+  }
+  assertExactObjectKeys(dimensions, REQUIRED_CLAWHUB_DIMENSION_KEYS, "ClawScan judge dimensions");
+  for (const dimensionKey of REQUIRED_CLAWHUB_DIMENSION_KEYS) {
+    const dimension = asRecord(dimensions[dimensionKey]);
+    if (!dimension) {
+      throw new Error(`ClawScan judge dimension ${dimensionKey} was missing`);
+    }
+    assertExactObjectKeys(
+      dimension,
+      REQUIRED_CLAWHUB_DIMENSION_FIELD_KEYS,
+      `ClawScan judge dimension ${dimensionKey}`,
+    );
+    const status = readString(dimension, ["status"]);
+    if (!status || !ALLOWED_CLAWHUB_DIMENSION_STATUSES.has(status)) {
+      throw new Error(`ClawScan judge dimension ${dimensionKey} status was ${status ?? "missing"}`);
+    }
+    if (typeof dimension.detail !== "string") {
+      throw new Error(`ClawScan judge dimension ${dimensionKey} detail was missing`);
+    }
+  }
+
+  if (!Array.isArray(result.scan_findings_in_context)) {
+    throw new Error("ClawScan judge result scan_findings_in_context was missing");
+  }
+  for (const [index, findingValue] of result.scan_findings_in_context.entries()) {
+    const finding = asRecord(findingValue);
+    if (!finding) {
+      throw new Error(`ClawScan finding ${index + 1} was not an object`);
+    }
+    assertExactObjectKeys(finding, REQUIRED_CLAWHUB_FINDING_KEYS, `ClawScan finding ${index + 1}`);
+    if (typeof finding.ruleId !== "string") {
+      throw new Error(`ClawScan finding ${index + 1} ruleId was missing`);
+    }
+    if (typeof finding.expected_for_purpose !== "boolean") {
+      throw new Error(`ClawScan finding ${index + 1} expected_for_purpose was missing`);
+    }
+    if (typeof finding.note !== "string") {
+      throw new Error(`ClawScan finding ${index + 1} note was missing`);
+    }
+  }
+}
+
+function artifactCompletedAtMs(artifact: Record<string, unknown>) {
+  const completedAt = readString(artifact, ["completedAt"]);
+  const parsed = completedAt ? Date.parse(completedAt) : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`ClawScan artifact completedAt was ${completedAt ?? "missing"}`);
+  }
+  return parsed;
+}
+
+function readClawScanScannerStatuses(
+  artifact: Record<string, unknown>,
+  scannerSet = EXPECTED_CLAWHUB_SHADOW_SCANNERS,
+) {
+  const scanners = asRecord(artifact.scanners);
+  const scannerStatuses: Record<string, string> = {};
+  for (const scanner of scannerSet) {
+    const scannerRecord = asRecord(scanners?.[scanner]);
+    scannerStatuses[scanner] = readString(scannerRecord ?? {}, ["status"]) ?? "missing";
+  }
+  return scannerStatuses;
+}
+
+function validateClawScanArtifactForClawHubProfile(artifact: Record<string, unknown>) {
+  const schemaVersion = readString(artifact, ["schemaVersion"]);
+  if (schemaVersion !== "clawscan-run-v1") {
+    throw new Error(`ClawScan artifact schemaVersion was ${schemaVersion ?? "missing"}`);
+  }
+  const profile = readString(artifact, ["profile"]);
+  if (profile !== "clawhub") {
+    throw new Error(`ClawScan artifact profile was ${profile ?? "missing"}`);
+  }
+
+  const judge = asRecord(artifact.judge);
+  if (!judge) throw new Error("ClawScan artifact judge result was missing");
+  const judgeStatus = readString(judge, ["status"]);
+  if (judgeStatus !== "completed") {
+    throw new Error(`ClawScan judge status was ${judgeStatus ?? "missing"}`);
+  }
+  const result = asRecord(judge.result);
+  if (!result) {
+    throw new Error("ClawScan judge did not include a JSON object result");
+  }
+  validateClawScanJudgeResultShape(result);
+  const parsed = parseLlmEvalResponse(JSON.stringify(result));
+  if (!parsed) {
+    throw new Error("ClawScan judge result did not match the ClawHub output schema");
+  }
+
+  const scannerStatuses = readClawScanScannerStatuses(artifact);
+  const allowedScannerStatuses: Record<string, Set<string>> = {
+    "clawscan-static": new Set(["completed"]),
+    skillspector: new Set(["completed"]),
+    virustotal: new Set(["completed"]),
+  };
+  for (const [scanner, status] of Object.entries(scannerStatuses)) {
+    const allowed = allowedScannerStatuses[scanner] ?? new Set(["completed"]);
+    if (!allowed.has(status)) {
+      throw new Error(`ClawScan scanner ${scanner} status was ${status}`);
+    }
+  }
+
+  const scanners = asRecord(artifact.scanners);
+  const skillSpector = asRecord(scanners?.skillspector);
+  if (!skillSpector || skillSpector.raw === undefined) {
+    throw new Error("ClawScan skillspector scanner output was missing");
+  }
+  const rawSkillSpector =
+    typeof skillSpector.raw === "string" ? skillSpector.raw : JSON.stringify(skillSpector.raw);
+
+  const checkedAt = artifactCompletedAtMs(artifact);
+
+  return {
+    llmAnalysis: toStoredLlmAnalysis(parsed, { checkedAt, omitModel: true }),
+    mapping: {
+      judge: {
+        outputSchemaSha256: readString(judge, ["outputSchemaSha256", "outputSchemaSHA"]),
+        promptSha256: readString(judge, ["promptSha256", "promptSHA"]),
+        status: judgeStatus ?? undefined,
+        verdict: parsed.verdict,
+      },
+      scanners: {
+        skillspectorStatus: scannerStatuses.skillspector,
+        staticStatus: scannerStatuses["clawscan-static"],
+        virustotalStatus: scannerStatuses.virustotal,
+      },
+    },
+    skillSpectorAnalysis: normalizeSkillSpectorAnalysis(rawSkillSpector, checkedAt),
+  };
+}
+
+export async function runClawScan(
+  job: ClaimedJob,
+  workspace: string,
+  onDiagnostic: (diagnostic: Partial<ClawScanCommandDiagnostic>) => void,
+) {
+  if (job.job.targetKind !== "skillVersion") {
+    throw new Error(
+      `ClawScan authoritative worker path currently supports skillVersion jobs only, got ${job.job.targetKind}`,
+    );
+  }
+
+  const command = process.env.CODEX_SECURITY_SCAN_CLAWSCAN_COMMAND ?? "clawscan";
+  const artifactPath = join(workspace, "clawscan-artifact.json");
+  const args = ["./artifact", "--profile", "clawhub", "--output", artifactPath];
+  onDiagnostic({ args: [command, ...args], artifactPath });
+
+  try {
+    const output = await runCommand(command, args, {
+      cwd: workspace,
+      timeoutMs: clawScanTimeoutMs(),
+    });
+    onDiagnostic({
+      exitCode: 0,
+      stderr: output.stderr,
+      stdout: output.stdout,
+    });
+  } catch (error) {
+    if (error instanceof CommandFailure) {
+      onDiagnostic({
+        exitCode: error.exitCode,
+        stderr: error.stderr,
+        stdout: error.stdout,
+      });
+    }
+    throw error;
+  }
+
+  const rawArtifact = await readFile(artifactPath, "utf8");
+  onDiagnostic({ rawArtifact });
+
+  let parsedArtifact: unknown;
+  try {
+    parsedArtifact = JSON.parse(rawArtifact);
+  } catch {
+    throw new Error("ClawScan did not emit a valid JSON artifact");
+  }
+  const artifact = asRecord(parsedArtifact);
+  if (!artifact) {
+    throw new Error("ClawScan artifact root must be a JSON object");
+  }
+
+  const mapped = validateClawScanArtifactForClawHubProfile(artifact);
+  onDiagnostic({ mapping: mapped.mapping });
+  return mapped;
 }
 
 export async function runCodex(
@@ -1462,9 +2021,12 @@ export async function processJob(
   token: string,
   job: ClaimedJob,
   diagnosticsRoot: string | undefined,
+  implementation: ScanImplementation = "codex",
 ): Promise<ProcessJobResult> {
   const workspace = await mkdtemp(join(tmpdir(), `clawhub-codex-scan-${basename(job.job._id)}-`));
   const startedAt = Date.now();
+  const scanImplementation = implementation;
+  const clawscan: ClawScanCommandDiagnostic = {};
   const codex: CodexCommandDiagnostic = {};
   const skillSpector: CodexCommandDiagnostic = {};
   let errorMessage: string | undefined;
@@ -1474,15 +2036,24 @@ export async function processJob(
   let status: JobDiagnosticInput["status"] = "failed";
   try {
     await writeArtifactWorkspace(job, workspace);
-    const skillSpectorInputs = await resolveSkillSpectorScanInputs(workspace, job);
-    if (skillSpectorInputs.length > 0) {
-      skillSpectorAnalysis = await runSkillSpector(workspace, skillSpectorInputs, (next) => {
-        Object.assign(skillSpector, next);
+    if (scanImplementation === "clawscan") {
+      const mapped = await runClawScan(job, workspace, (next) => {
+        Object.assign(clawscan, next);
+      });
+      llmAnalysis = mapped.llmAnalysis;
+      skillSpectorAnalysis = mapped.skillSpectorAnalysis;
+    } else {
+      const skillSpectorInputs = await resolveSkillSpectorScanInputs(workspace, job);
+      if (skillSpectorInputs.length > 0) {
+        skillSpectorAnalysis = await runSkillSpector(workspace, skillSpectorInputs, (next) => {
+          Object.assign(skillSpector, next);
+        });
+      }
+      llmAnalysis = await runCodex(job, workspace, skillSpectorAnalysis, (next) => {
+        Object.assign(codex, next);
       });
     }
-    llmAnalysis = await runCodex(job, workspace, skillSpectorAnalysis, (next) => {
-      Object.assign(codex, next);
-    });
+    if (!llmAnalysis) throw new Error("Security scan did not produce llmAnalysis");
     await client.action(api.securityScan.completeCodexScanJob, {
       token,
       jobId: job.job._id as Id<"securityScanJobs">,
@@ -1492,27 +2063,30 @@ export async function processJob(
       runId: process.env.GITHUB_RUN_ID,
     });
     status = "completed";
-    clawscanShadow = await runClawScanShadow(job, workspace, llmAnalysis);
-    if (clawscanShadow.status !== "skipped") {
-      logger.info(
-        {
-          durationMs: clawscanShadow.durationMs,
-          event: "security_scan_clawscan_shadow_completed",
-          jobId: job.job._id,
-          prodStatus: llmAnalysis.status,
-          prodVerdict: llmAnalysis.verdict,
-          shadowStatus: clawscanShadow.shadow?.status,
-          shadowVerdict: clawscanShadow.shadow?.verdict,
-          shadowRunStatus: clawscanShadow.status,
-          targetKind: job.job.targetKind,
-        },
-        "ClawScan shadow run completed",
-      );
+    if (scanImplementation === "codex") {
+      clawscanShadow = await runClawScanShadow(job, workspace, llmAnalysis);
+      if (clawscanShadow.status !== "skipped") {
+        logger.info(
+          {
+            durationMs: clawscanShadow.durationMs,
+            event: "security_scan_clawscan_shadow_completed",
+            jobId: job.job._id,
+            prodStatus: llmAnalysis.status,
+            prodVerdict: llmAnalysis.verdict,
+            shadowStatus: clawscanShadow.shadow?.status,
+            shadowVerdict: clawscanShadow.shadow?.verdict,
+            shadowRunStatus: clawscanShadow.status,
+            targetKind: job.job.targetKind,
+          },
+          "ClawScan shadow run completed",
+        );
+      }
     }
     logger.info(
       {
         durationMs: Date.now() - startedAt,
         event: "security_scan_job_completed",
+        implementation: scanImplementation,
         jobId: job.job._id,
         scannerPhase: "complete",
         status: llmAnalysis.status,
@@ -1553,6 +2127,7 @@ export async function processJob(
       await writeJobDiagnostic({
         codex,
         completedAt: Date.now(),
+        clawscan,
         clawscanShadow,
         diagnosticsRoot,
         error: errorMessage,
