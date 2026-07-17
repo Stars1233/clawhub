@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parseArk } from "./ark";
 import { DocsLinks, openClawDocsUrl } from "./docsLinks";
 import {
+  ApiV1PackageVersionResponseSchema,
   ApiV1PackagePublishResponseSchema,
   getPackageScopeOwnerMismatch,
   inferPackageNameScope,
@@ -95,6 +96,37 @@ describe("clawhub-schema", () => {
     expect(response.releaseId).toBe("packageReleases:demo");
     expect(response.publicationStatus).toBe("pending");
     expect(response.attemptId).toBe("publishAttempts:demo");
+  });
+
+  it("preserves plugin manifest icons in package version responses", () => {
+    const response = parseArk(
+      ApiV1PackageVersionResponseSchema,
+      {
+        package: {
+          name: "demo-plugin",
+          displayName: "Demo Plugin",
+          family: "code-plugin",
+        },
+        version: {
+          version: "1.0.0",
+          createdAt: 1,
+          changelog: "Adds a manifest icon",
+          files: [],
+          pluginManifestSummary: {
+            schemaVersion: 1,
+            icon: "https://cdn.example.test/icons/demo-plugin.svg",
+            configFields: [],
+            mcpServers: [],
+            bundledSkills: [],
+          },
+        },
+      },
+      "Package version response",
+    );
+
+    expect(response.version?.pluginManifestSummary?.icon).toBe(
+      "https://cdn.example.test/icons/demo-plugin.svg",
+    );
   });
 
   it("accepts publish payload with github source", () => {

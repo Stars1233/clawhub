@@ -50,6 +50,7 @@ export type PackageCompatibility = (typeof PackageCompatibilitySchema)[inferred]
 
 export const PluginManifestSummarySchema = type({
   schemaVersion: "number",
+  icon: "string?",
   compatibility: PackageCompatibilitySchema.optional(),
   manifestIdentity: type({
     name: "string?",

@@ -34,6 +34,7 @@ export const PackageCompatibilitySchema = type({
 });
 export const PluginManifestSummarySchema = type({
     schemaVersion: "number",
+    icon: "string?",
     compatibility: PackageCompatibilitySchema.optional(),
     manifestIdentity: type({
         name: "string?",

@@ -582,6 +582,7 @@ const packageCompatibilityValidator = v.optional(
 
 const pluginManifestSummaryValidator = v.object({
   schemaVersion: v.literal(1),
+  icon: v.optional(v.string()),
   compatibility: v.optional(
     v.object({
       pluginApiRange: v.optional(v.string()),
