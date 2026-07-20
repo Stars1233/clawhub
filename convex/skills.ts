@@ -11358,30 +11358,17 @@ async function canManagePublisherDestination(
   return Boolean(membership && isPublisherRoleAllowed(membership.role, ["admin"]));
 }
 
-async function assertCanTransferSkillSlugToPublisher(
+async function getDestinationSkillSlugAliasToReplace(
   ctx: MutationCtx,
   skill: Doc<"skills">,
   destinationPublisher: Doc<"publishers">,
 ) {
-  const transferredSlugs = new Set([skill.slug]);
-
-  for (const slug of transferredSlugs) {
-    const existingSkill = await getSkillBySlugForPublisher(ctx, slug, destinationPublisher);
-    if (existingSkill && existingSkill._id !== skill._id) {
-      throw new ConvexError(buildDestinationSkillExistsMessage(destinationPublisher, slug));
-    }
-
-    const existingAlias = await getSkillSlugAliasBySlugForPublisher(
-      ctx,
-      slug,
-      destinationPublisher,
-    );
-    if (existingAlias && existingAlias.skillId !== skill._id) {
-      throw new ConvexError(
-        `Destination owner @${destinationPublisher.handle} already has a redirect for skill "${slug}". Rename or merge before transferring ownership.`,
-      );
-    }
+  const existingSkill = await getSkillBySlugForPublisher(ctx, skill.slug, destinationPublisher);
+  if (existingSkill && existingSkill._id !== skill._id) {
+    throw new ConvexError(buildDestinationSkillExistsMessage(destinationPublisher, skill.slug));
   }
+
+  return getSkillSlugAliasBySlugForPublisher(ctx, skill.slug, destinationPublisher);
 }
 
 export const transferSkillOwnerForUserInternal = internalMutation({
@@ -11449,9 +11436,16 @@ export const transferSkillOwnerForUserInternal = internalMutation({
       throw new ConvexError("Destination owner user not found");
     }
 
-    await assertCanTransferSkillSlugToPublisher(ctx, skill, destinationPublisher);
+    const replacedDestinationAlias = await getDestinationSkillSlugAliasToReplace(
+      ctx,
+      skill,
+      destinationPublisher,
+    );
 
     const now = Date.now();
+    if (replacedDestinationAlias) {
+      await ctx.db.delete(replacedDestinationAlias._id);
+    }
     await transferSkillOwnershipAndEmbeddings(ctx, {
       skill,
       ownerUserId: nextOwner._id,
@@ -11479,6 +11473,8 @@ export const transferSkillOwnerForUserInternal = internalMutation({
         nextOwnerUserId: nextOwner._id,
         nextOwnerPublisherId: destinationPublisher._id,
         reason: args.reason || undefined,
+        replacedDestinationAliasId: replacedDestinationAlias?._id,
+        replacedDestinationAliasSkillId: replacedDestinationAlias?.skillId,
       },
       createdAt: now,
     });
@@ -12408,7 +12404,11 @@ export const insertVersion = internalMutation({
         userId,
         allowed: ["admin"],
       });
-      await assertCanTransferSkillSlugToPublisher(ctx, skill, ownerPublisher);
+      const replacedDestinationAlias = await getDestinationSkillSlugAliasToReplace(
+        ctx,
+        skill,
+        ownerPublisher,
+      );
 
       const previousOwnerPublisherId = skill.ownerPublisherId;
       const previousOwnerUserId = skill.ownerUserId;
@@ -12421,6 +12421,9 @@ export const insertVersion = internalMutation({
         updatedAt: now,
       };
 
+      if (replacedDestinationAlias) {
+        await ctx.db.delete(replacedDestinationAlias._id);
+      }
       await transferSkillOwnershipAndEmbeddings(ctx, {
         skill,
         ownerPublisherId,
@@ -12443,6 +12446,8 @@ export const insertVersion = internalMutation({
             ownerPublisherId,
             ownerUserId: userId,
           },
+          replacedDestinationAliasId: replacedDestinationAlias?._id,
+          replacedDestinationAliasSkillId: replacedDestinationAlias?.skillId,
         },
         createdAt: now,
       });
