@@ -93,4 +93,24 @@ describe("payload building", () => {
     expect(embed.description).toBe("Nice skill");
     expect(embed.fields[0].value).toBe("v1.2.3");
   });
+
+  it("keeps titles within Discord's 256-character embed limit", () => {
+    const displayName =
+      "Query trade area distribution analysis for HS codes — retrieve trade distribution data by country/region for a specified HS code, with exporter/importer type and recent months filters. Provides trade counts, amounts, buyer counts and seller counts per country for comprehensive geographic market analysis across global customs data covering 220+ countries and territories. Designed for trade analysts, market researchers and import-export professionals who need to understand which countries trade a specific product, analyze regional distribution patterns and compare exporter vs importer country activity for strategic market planning.";
+
+    const payload = buildDiscordPayload(
+      "skill.publish",
+      {
+        slug: "customs-analysis-area",
+        displayName,
+        summary: "Query trade area distribution analysis.",
+        version: "1.0.0",
+        ownerHandle: "upkuajing",
+      },
+      { url: "https://example.com", highlightedOnly: false, siteUrl: "https://clawhub.ai" },
+    );
+
+    expect(payload.embeds[0].title).toHaveLength(256);
+    expect(payload.embeds[0].title.endsWith("…")).toBe(true);
+  });
 });

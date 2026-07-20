@@ -17,6 +17,7 @@ export type WebhookConfig = {
 };
 
 const DEFAULT_SITE_URL = "https://clawhub.ai";
+const DISCORD_EMBED_TITLE_MAX_LENGTH = 256;
 
 export function getWebhookConfig(env: NodeJS.ProcessEnv = process.env): WebhookConfig {
   const url = env.DISCORD_WEBHOOK_URL?.trim() || null;
@@ -42,7 +43,10 @@ export function buildDiscordPayload(
   config: WebhookConfig,
 ) {
   const titleBase = skill.displayName || skill.slug;
-  const title = event === "skill.highlighted" ? `Highlighted: ${titleBase}` : titleBase;
+  const title = truncate(
+    event === "skill.highlighted" ? `Highlighted: ${titleBase}` : titleBase,
+    DISCORD_EMBED_TITLE_MAX_LENGTH,
+  );
   const description = buildDescription(event, skill);
   const url = buildSkillUrl(skill, config.siteUrl);
   const tags = formatTags(skill.tags);
