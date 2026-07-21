@@ -683,7 +683,11 @@ function makeEmptyPublisherAbuseScoreRunsQuery() {
       indexName: string,
       build: (q: { eq: (field: string, value: unknown) => unknown }) => unknown,
     ) => {
-      expect(indexName).toBe("by_model_version_and_started_at");
+      expect([
+        "by_model_version_and_started_at",
+        "by_temporal_pipeline_kind_and_started_at",
+        "by_model_version_and_temporal_pipeline_kind_and_phase_started_at",
+      ]).toContain(indexName);
       const constraints: Record<string, unknown> = {};
       const q = {
         eq(field: string, value: unknown) {
@@ -692,7 +696,15 @@ function makeEmptyPublisherAbuseScoreRunsQuery() {
         },
       };
       build(q);
-      expect(constraints.modelVersion).toBeTypeOf("string");
+      if (indexName === "by_model_version_and_started_at") {
+        expect(constraints.modelVersion).toBeTypeOf("string");
+      } else if (indexName === "by_model_version_and_temporal_pipeline_kind_and_phase_started_at") {
+        expect(constraints.modelVersion).toBeTypeOf("string");
+        expect(constraints.temporalPipelineKind).toBeUndefined();
+        expect(constraints.temporalPipelinePhase).toBeTypeOf("string");
+      } else {
+        expect(constraints).toEqual({ temporalPipelineKind: "signals" });
+      }
       return {
         order: (direction: "asc" | "desc") => {
           expect(direction).toBe("desc");
@@ -807,6 +819,7 @@ describe("publisher abuse dry-run persistence", () => {
         listDashboardHandler({ db: { get: dbGet, query: dbQuery } }, {}),
       ).resolves.toEqual({
         latestRun: null,
+        latestSignalRun: null,
         pendingItems: [],
         pendingPotentialBanCandidateItems: [],
         pendingReviewItems: [],
@@ -872,6 +885,7 @@ describe("publisher abuse dry-run persistence", () => {
 
     await expect(listDashboardHandler({ db }, {})).resolves.toEqual({
       latestRun: null,
+      latestSignalRun: null,
       pendingItems: [],
       pendingPotentialBanCandidateItems: [],
       pendingReviewItems: [],
@@ -1622,6 +1636,7 @@ describe("publisher abuse dry-run persistence", () => {
 
     await expect(listDashboardHandler({ db }, {})).resolves.toEqual({
       latestRun: null,
+      latestSignalRun: null,
       pendingItems: [],
       pendingPotentialBanCandidateItems: [],
       pendingReviewItems: [],
@@ -1687,6 +1702,85 @@ describe("publisher abuse dry-run persistence", () => {
       }),
     );
     expect(db.get).not.toHaveBeenCalled();
+  });
+
+  it("keeps a resumable legacy signal scan visible behind a newer diagnostic run", async () => {
+    vi.mocked(requireUser).mockResolvedValue({
+      userId: "users:moderator",
+      user: { _id: "users:moderator", role: "moderator" },
+    } as never);
+    const legacySignalRun = {
+      _id: "publisherAbuseScoreRuns:legacy-signal",
+      modelVersion: "publisher-abuse-temporal.v1",
+      status: "running",
+      phase: "collecting",
+      trigger: "cron",
+      startedAt: 200,
+      updatedAt: 200,
+      temporalPipelinePhase: "collecting",
+    };
+    const newerDiagnosticRun = {
+      ...legacySignalRun,
+      _id: "publisherAbuseScoreRuns:newer-diagnostic",
+      startedAt: 300,
+      updatedAt: 300,
+      temporalPipelinePhase: undefined,
+    };
+    const db = {
+      get: vi.fn(async () => null),
+      query: vi.fn((table: string) => {
+        if (table === "publisherAbuseScoreRuns") {
+          return {
+            withIndex: (
+              indexName: string,
+              build: (q: { eq: (field: string, value: unknown) => unknown }) => unknown,
+            ) => {
+              const constraints: Record<string, unknown> = {};
+              const q = {
+                eq(field: string, value: unknown) {
+                  constraints[field] = value;
+                  return q;
+                },
+              };
+              build(q);
+              return {
+                order: () => ({
+                  first: async () => {
+                    if (indexName === "by_temporal_pipeline_kind_and_started_at") return null;
+                    if (
+                      indexName ===
+                      "by_model_version_and_temporal_pipeline_kind_and_phase_started_at"
+                    ) {
+                      return constraints.modelVersion === "publisher-abuse-temporal.v1" &&
+                        constraints.temporalPipelineKind === undefined &&
+                        constraints.temporalPipelinePhase === "collecting"
+                        ? legacySignalRun
+                        : null;
+                    }
+                    return constraints.modelVersion === "publisher-abuse-temporal.v1"
+                      ? newerDiagnosticRun
+                      : null;
+                  },
+                }),
+              };
+            },
+          };
+        }
+        if (table === "publisherAbuseReviewNominations") {
+          return makePublisherAbuseNominationCountQuery([]);
+        }
+        if (table === "publisherAbuseSignals") return makePublisherAbuseSignalCountQuery([]);
+        if (table === "officialPublishers") return makeEmptyOfficialPublishersQuery();
+        throw new Error(`unexpected table ${table}`);
+      }),
+    };
+
+    await expect(listDashboardHandler({ db }, {})).resolves.toEqual(
+      expect.objectContaining({
+        latestRun: expect.objectContaining({ _id: legacySignalRun._id }),
+        latestSignalRun: expect.objectContaining({ _id: legacySignalRun._id }),
+      }),
+    );
   });
 
   it("counts only visible publisher abuse nominations on the dashboard", async () => {
@@ -1830,6 +1924,7 @@ describe("publisher abuse dry-run persistence", () => {
 
     await expect(listDashboardHandler({ db }, {})).resolves.toEqual({
       latestRun: null,
+      latestSignalRun: null,
       pendingItems: [],
       pendingPotentialBanCandidateItems: [],
       pendingReviewItems: [],
@@ -1921,6 +2016,7 @@ describe("publisher abuse dry-run persistence", () => {
 
     await expect(listDashboardHandler({ db }, {})).resolves.toEqual({
       latestRun: null,
+      latestSignalRun: null,
       pendingItems: [],
       pendingPotentialBanCandidateItems: [],
       pendingReviewItems: [],

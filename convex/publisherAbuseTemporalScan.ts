@@ -23,6 +23,10 @@ const SOURCE_PAGE_SIZE = 50;
 const PERCENTILE_PAGE_SIZE = 500;
 const CANDIDATE_PAGE_SIZE = 100;
 const TEMPORAL_SCAN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const TEMPORAL_SCAN_HEARTBEAT_TIMEOUT_MS = 15 * 60 * 1000;
+const TEMPORAL_SCAN_RETRY_BASE_DELAY_MS = 30 * 1000;
+const TEMPORAL_SCAN_RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
+const MAX_TEMPORAL_SCAN_FAILURE_ATTEMPTS = 5;
 
 const temporalCohortBandValidator = v.union(v.literal("p95"), v.literal("p99"));
 const temporalScoreValidator = v.object({
@@ -86,6 +90,19 @@ function isActiveScheduledTemporalRun(run: TemporalScanRun, now: number) {
   return run.status === "running" && now - run.startedAt < TEMPORAL_SCAN_RETENTION_MS;
 }
 
+function temporalScanRetryDelayMs(failureCount: number) {
+  return Math.min(
+    TEMPORAL_SCAN_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, failureCount - 1),
+    TEMPORAL_SCAN_RETRY_MAX_DELAY_MS,
+  );
+}
+
+function temporalScanHeartbeatDueAt(run: TemporalScanRun) {
+  return (
+    Math.max(run.updatedAt, run.nextTransientRetryAt ?? 0) + TEMPORAL_SCAN_HEARTBEAT_TIMEOUT_MS
+  );
+}
+
 export async function getOrStartScheduledTemporalScanInternalHandler(
   ctx: MutationCtx,
   args: { trigger?: "cron" | "manual"; actorUserId?: Id<"users"> },
@@ -112,11 +129,36 @@ export async function getOrStartScheduledTemporalScanInternalHandler(
         .first();
   const existing =
     currentPipeline ?? (legacyCronPipeline?.temporalPipelinePhase ? legacyCronPipeline : null);
+  const withinWorkingStateRetention =
+    existing !== null && now - existing.startedAt < TEMPORAL_SCAN_RETENTION_MS;
+  const shouldRetryStaleRun =
+    existing?.temporalPipelinePhase !== undefined &&
+    existing.temporalPipelinePhase !== "completed" &&
+    withinWorkingStateRetention &&
+    now >= temporalScanHeartbeatDueAt(existing);
   if (
     existing?.temporalPipelinePhase &&
     existing.temporalPipelinePhase !== "completed" &&
-    now - existing.startedAt < TEMPORAL_SCAN_RETENTION_MS
+    withinWorkingStateRetention &&
+    !shouldRetryStaleRun
   ) {
+    return { runId: existing._id, resumed: true as const };
+  }
+  if (existing && shouldRetryStaleRun) {
+    const retry = await recordScheduledTemporalScanFailureInternalHandler(ctx, {
+      runId: existing._id,
+      expectedUpdatedAt: existing.updatedAt,
+      errorMessage: "Signal scan reported no progress for fifteen minutes.",
+    });
+    if (retry.outcome === "retry_scheduled") {
+      await ctx.scheduler.runAfter(
+        temporalScanRetryDelayMs(retry.failureCount) + TEMPORAL_SCAN_HEARTBEAT_TIMEOUT_MS,
+        internal.publisherAbuseTemporalScan.monitorScheduledTemporalScanInternal,
+        { runId: existing._id },
+      );
+    }
+    // On failure five, the action re-reads this run and surfaces its terminal
+    // error. A later independent trigger may start a new scan; this one stops.
     return { runId: existing._id, resumed: true as const };
   }
   if (existing) {
@@ -154,6 +196,11 @@ export async function getOrStartScheduledTemporalScanInternalHandler(
     temporalDownloadsProcessed: 0,
     temporalSpikeProcessed: 0,
   });
+  await ctx.scheduler.runAfter(
+    TEMPORAL_SCAN_HEARTBEAT_TIMEOUT_MS,
+    internal.publisherAbuseTemporalScan.monitorScheduledTemporalScanInternal,
+    { runId },
+  );
   return { runId, resumed: false as const };
 }
 
@@ -223,6 +270,10 @@ export async function storeScheduledTemporalScanPageInternalHandler(
       (run.temporalDownloadsSum ?? 0) +
       args.benchmarkScores.reduce((sum, score) => sum + Math.max(0, score.recent30Downloads), 0),
     temporalPipelinePhase: args.isDone ? "downloads_percentiles" : "collecting",
+    transientErrorCount: 0,
+    lastTransientError: undefined,
+    lastTransientErrorAt: undefined,
+    nextTransientRetryAt: undefined,
     updatedAt: now,
   });
   return { applied: true as const };
@@ -325,6 +376,10 @@ export async function advanceScheduledTemporalPercentileInternalHandler(
       temporalDownloadsP95: args.p95 ?? run.temporalDownloadsP95,
       temporalDownloadsP99: args.p99 ?? run.temporalDownloadsP99,
       temporalPipelinePhase: args.isDone ? "spike_percentiles" : args.phase,
+      transientErrorCount: 0,
+      lastTransientError: undefined,
+      lastTransientErrorAt: undefined,
+      nextTransientRetryAt: undefined,
       updatedAt: now,
     });
     return { applied: true as const };
@@ -341,6 +396,10 @@ export async function advanceScheduledTemporalPercentileInternalHandler(
     temporalSpikeP99: spikeP99,
     temporalBenchmark: benchmark,
     temporalPipelinePhase: args.isDone ? "classifying" : args.phase,
+    transientErrorCount: 0,
+    lastTransientError: undefined,
+    lastTransientErrorAt: undefined,
+    nextTransientRetryAt: undefined,
     updatedAt: now,
   });
   return { applied: true as const };
@@ -456,6 +515,10 @@ export async function advanceScheduledTemporalCandidatesInternalHandler(
     completedAt: args.isDone ? now : undefined,
     finalizedScores,
     reviewCount: finalizedScores,
+    transientErrorCount: 0,
+    lastTransientError: undefined,
+    lastTransientErrorAt: undefined,
+    nextTransientRetryAt: undefined,
     updatedAt: now,
   });
   return { applied: true as const };
@@ -518,6 +581,119 @@ export const markScheduledTemporalScanFailedInternal = internalMutation({
   handler: markScheduledTemporalScanFailedInternalHandler,
 });
 
+type ScheduledTemporalScanFailureResult =
+  | { outcome: "inactive" }
+  | { outcome: "retry_scheduled"; failureCount: number }
+  | { outcome: "failed"; failureCount: number };
+
+export async function recordScheduledTemporalScanFailureInternalHandler(
+  ctx: MutationCtx,
+  args: {
+    runId: Id<"publisherAbuseScoreRuns">;
+    expectedUpdatedAt: number;
+    errorMessage: string;
+  },
+): Promise<ScheduledTemporalScanFailureResult> {
+  const run = await getScheduledTemporalScanStateInternalHandler(ctx, { runId: args.runId });
+  if (run.status !== "running" || run.updatedAt !== args.expectedUpdatedAt) {
+    return { outcome: "inactive" };
+  }
+
+  const now = Date.now();
+  const failureCount = (run.transientErrorCount ?? 0) + 1;
+  const failureTelemetry = {
+    transientErrorCount: failureCount,
+    lastTransientError: args.errorMessage,
+    lastTransientErrorAt: now,
+    updatedAt: now,
+  };
+  if (failureCount >= MAX_TEMPORAL_SCAN_FAILURE_ATTEMPTS) {
+    await ctx.db.patch(run._id, {
+      ...failureTelemetry,
+      status: "failed",
+      temporalScanComplete: false,
+      errorMessage: args.errorMessage,
+      nextTransientRetryAt: undefined,
+    });
+    console.error("[publisher-temporal-abuse-scan] retry budget exhausted", {
+      event: "publisher_temporal_abuse_scan_failed",
+      runId: run._id,
+      failureCount,
+      errorMessage: args.errorMessage,
+    });
+    return { outcome: "failed", failureCount };
+  }
+
+  const retryDelayMs = temporalScanRetryDelayMs(failureCount);
+  await ctx.db.patch(run._id, {
+    ...failureTelemetry,
+    errorMessage: undefined,
+    nextTransientRetryAt: now + retryDelayMs,
+  });
+  await ctx.scheduler.runAfter(
+    retryDelayMs,
+    internal.publisherAbuseTemporalScan.runScheduledTemporalPublisherAbuseScanInternal,
+    { runId: run._id },
+  );
+  console.warn("[publisher-temporal-abuse-scan] scan step failed; retrying", {
+    runId: run._id,
+    failureCount,
+    maxFailureAttempts: MAX_TEMPORAL_SCAN_FAILURE_ATTEMPTS,
+    retryDelayMs,
+    errorMessage: args.errorMessage,
+  });
+  return { outcome: "retry_scheduled", failureCount };
+}
+
+export const recordScheduledTemporalScanFailureInternal = internalMutation({
+  args: {
+    runId: v.id("publisherAbuseScoreRuns"),
+    expectedUpdatedAt: v.number(),
+    errorMessage: v.string(),
+  },
+  handler: recordScheduledTemporalScanFailureInternalHandler,
+});
+
+export async function monitorScheduledTemporalScanInternalHandler(
+  ctx: MutationCtx,
+  args: { runId: Id<"publisherAbuseScoreRuns"> },
+) {
+  const run = await getScheduledTemporalScanStateInternalHandler(ctx, args);
+  if (run.status !== "running" || run.temporalPipelinePhase === "completed") {
+    return { outcome: "inactive" as const };
+  }
+
+  const now = Date.now();
+  const heartbeatDueAt = temporalScanHeartbeatDueAt(run);
+  if (now < heartbeatDueAt) {
+    await ctx.scheduler.runAfter(
+      heartbeatDueAt - now,
+      internal.publisherAbuseTemporalScan.monitorScheduledTemporalScanInternal,
+      args,
+    );
+    return { outcome: "waiting" as const };
+  }
+
+  const failure = await recordScheduledTemporalScanFailureInternalHandler(ctx, {
+    runId: run._id,
+    expectedUpdatedAt: run.updatedAt,
+    errorMessage: "Signal scan reported no progress for fifteen minutes.",
+  });
+  if (failure.outcome === "retry_scheduled") {
+    await ctx.scheduler.runAfter(
+      temporalScanRetryDelayMs(failure.failureCount) + TEMPORAL_SCAN_HEARTBEAT_TIMEOUT_MS,
+      internal.publisherAbuseTemporalScan.monitorScheduledTemporalScanInternal,
+      args,
+    );
+  }
+  return failure;
+}
+
+export const monitorScheduledTemporalScanInternal = internalMutation({
+  args: { runId: v.id("publisherAbuseScoreRuns") },
+  handler: monitorScheduledTemporalScanInternalHandler,
+});
+
 type TemporalSourcePage = {
   cursor?: string;
   isDone: boolean;
@@ -534,6 +710,14 @@ type ScheduledTemporalScanResult =
       ok: false;
       runId: Id<"publisherAbuseScoreRuns">;
       completed: false;
+      failed: true;
+      failureCount: number;
+      errorMessage: string;
+    }
+  | {
+      ok: false;
+      runId: Id<"publisherAbuseScoreRuns">;
+      completed: false;
       expired: true;
     }
   | {
@@ -542,16 +726,19 @@ type ScheduledTemporalScanResult =
       completed: false;
       phase: Exclude<TemporalScanRun["temporalPipelinePhase"], "completed">;
       alreadyRunning?: true;
+      retrying?: true;
     };
 
 async function runScheduledTemporalPublisherAbuseScanStep(
   ctx: ActionCtx,
   runId: Id<"publisherAbuseScoreRuns">,
+  initialRun?: TemporalScanRun,
 ): Promise<ScheduledTemporalScanResult> {
-  const run: TemporalScanRun = await ctx.runQuery(
-    internal.publisherAbuseTemporalScan.getScheduledTemporalScanStateInternal,
-    { runId },
-  );
+  const run: TemporalScanRun =
+    initialRun ??
+    (await ctx.runQuery(internal.publisherAbuseTemporalScan.getScheduledTemporalScanStateInternal, {
+      runId,
+    }));
   if (run.status !== "running" || run.temporalPipelinePhase === "completed") {
     return { ok: true as const, runId: run._id, completed: true as const };
   }
@@ -584,7 +771,7 @@ async function runScheduledTemporalPublisherAbuseScanStep(
       recent30Downloads,
       spikeMultiplier,
     }));
-    await ctx.runMutation(
+    const stored: { applied: boolean } = await ctx.runMutation(
       internal.publisherAbuseTemporalScan.storeScheduledTemporalScanPageInternal,
       {
         runId: run._id,
@@ -595,6 +782,15 @@ async function runScheduledTemporalPublisherAbuseScanStep(
         candidates: sourcePage.candidates,
       },
     );
+    if (!stored.applied) {
+      return {
+        ok: true,
+        runId: run._id,
+        completed: false,
+        phase: run.temporalPipelinePhase,
+        alreadyRunning: true,
+      };
+    }
   } else if (
     run.temporalPipelinePhase === "downloads_percentiles" ||
     run.temporalPipelinePhase === "spike_percentiles"
@@ -629,7 +825,7 @@ async function runScheduledTemporalPublisherAbuseScanStep(
             targetIndex: percentileIndex(sampleSize, 0.5),
           })
         : undefined;
-    await ctx.runMutation(
+    const advanced: { applied: boolean } = await ctx.runMutation(
       internal.publisherAbuseTemporalScan.advanceScheduledTemporalPercentileInternal,
       {
         runId: run._id,
@@ -643,6 +839,15 @@ async function runScheduledTemporalPublisherAbuseScanStep(
         p99: sampleSize === 0 ? 0 : p99,
       },
     );
+    if (!advanced.applied) {
+      return {
+        ok: true,
+        runId: run._id,
+        completed: false,
+        phase: run.temporalPipelinePhase,
+        alreadyRunning: true,
+      };
+    }
   } else if (run.temporalPipelinePhase === "classifying") {
     if (!run.temporalBenchmark) throw new Error("Temporal scan benchmark is missing");
     const page: CandidatePage = await ctx.runQuery(
@@ -665,7 +870,7 @@ async function runScheduledTemporalPublisherAbuseScanStep(
         ({ temporalScore }) =>
           temporalScore.spike || temporalScore.sustained || temporalScore.nearConversion,
       );
-    await ctx.runMutation(
+    const advanced: { applied: boolean } = await ctx.runMutation(
       internal.publisherAbuseTemporalScan.advanceScheduledTemporalCandidatesInternal,
       {
         runId: run._id,
@@ -675,6 +880,15 @@ async function runScheduledTemporalPublisherAbuseScanStep(
         candidates: highCandidates,
       },
     );
+    if (!advanced.applied) {
+      return {
+        ok: true,
+        runId: run._id,
+        completed: false,
+        phase: run.temporalPipelinePhase,
+        alreadyRunning: true,
+      };
+    }
     if (page.isDone) {
       await ctx.scheduler.runAfter(
         0,
@@ -738,15 +952,53 @@ export async function runScheduledTemporalPublisherAbuseScanInternalHandler(
       alreadyRunning: true,
     };
   }
+  const runAtAttemptStart: TemporalScanRun = await ctx.runQuery(
+    internal.publisherAbuseTemporalScan.getScheduledTemporalScanStateInternal,
+    { runId: start.runId },
+  );
   try {
-    return await runScheduledTemporalPublisherAbuseScanStep(ctx, start.runId);
+    return await runScheduledTemporalPublisherAbuseScanStep(ctx, start.runId, runAtAttemptStart);
   } catch (error) {
     const errorMessage = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+    const retryPhase =
+      runAtAttemptStart.temporalPipelinePhase === "completed"
+        ? "collecting"
+        : (runAtAttemptStart.temporalPipelinePhase ?? "collecting");
     try {
-      await ctx.runMutation(
-        internal.publisherAbuseTemporalScan.markScheduledTemporalScanFailedInternal,
-        { runId: start.runId, errorMessage },
+      const failure: ScheduledTemporalScanFailureResult = await ctx.runMutation(
+        internal.publisherAbuseTemporalScan.recordScheduledTemporalScanFailureInternal,
+        {
+          runId: start.runId,
+          expectedUpdatedAt: runAtAttemptStart.updatedAt,
+          errorMessage,
+        },
       );
+      if (failure.outcome === "retry_scheduled") {
+        return {
+          ok: true,
+          runId: start.runId,
+          completed: false,
+          phase: retryPhase,
+          retrying: true,
+        };
+      }
+      if (failure.outcome === "inactive") {
+        return {
+          ok: true,
+          runId: start.runId,
+          completed: false,
+          phase: retryPhase,
+          alreadyRunning: true,
+        };
+      }
+      return {
+        ok: false,
+        runId: start.runId,
+        completed: false,
+        failed: true,
+        failureCount: failure.failureCount,
+        errorMessage,
+      };
     } catch (recordError) {
       console.error("[publisher-temporal-abuse-scan] Failed to persist scan failure", {
         runId: start.runId,

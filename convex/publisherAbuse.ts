@@ -334,14 +334,21 @@ export const listReviewDashboard = query({
     const auth = await requirePublisherAbuseDashboardUser(ctx);
     if (!auth) return emptyPublisherAbuseReviewDashboard();
 
-    const [latestRun, nominationCountSummary, signalCountSummary] = await Promise.all([
-      getLatestPublisherAbuseScoreRun(ctx),
-      getPublisherAbuseReviewNominationCountSummary(ctx),
-      getPublisherAbuseSignalCountSummary(ctx),
-    ]);
+    const [latestPressureRun, latestSignalRun, nominationCountSummary, signalCountSummary] =
+      await Promise.all([
+        getLatestPublisherAbuseScoreRunForModel(
+          ctx,
+          DEFAULT_PUBLISHER_ABUSE_MODEL_CONFIG.modelVersion,
+        ),
+        getLatestPublisherAbuseSignalRun(ctx),
+        getPublisherAbuseReviewNominationCountSummary(ctx),
+        getPublisherAbuseSignalCountSummary(ctx),
+      ]);
+    const latestRun = newerPublisherAbuseRun(latestPressureRun, latestSignalRun);
 
     return {
       latestRun: latestRun ? summarizePublisherAbuseRun(latestRun) : null,
+      latestSignalRun: latestSignalRun ? summarizePublisherAbuseRun(latestSignalRun) : null,
       pendingItems: [],
       pendingPotentialBanCandidateItems: [],
       pendingReviewItems: [],
@@ -528,6 +535,7 @@ async function requirePublisherAbuseDashboardUser(ctx: QueryCtx) {
 function emptyPublisherAbuseReviewDashboard() {
   return {
     latestRun: null,
+    latestSignalRun: null,
     pendingItems: [],
     pendingPotentialBanCandidateItems: [],
     pendingReviewItems: [],
@@ -4119,18 +4127,10 @@ async function getPublisherAbuseReviewItemsPageFromPendingNominations(
   };
 }
 
-async function getLatestPublisherAbuseScoreRun(ctx: QueryCtx) {
-  const pressureRun = await getLatestPublisherAbuseScoreRunForModel(
-    ctx,
-    DEFAULT_PUBLISHER_ABUSE_MODEL_CONFIG.modelVersion,
-  );
-  const temporalRun = await getLatestPublisherAbuseScoreRunForModel(
-    ctx,
-    PUBLISHER_TEMPORAL_ABUSE_MODEL_VERSION,
-  );
-  if (!pressureRun) return temporalRun;
-  if (!temporalRun) return pressureRun;
-  return temporalRun.startedAt > pressureRun.startedAt ? temporalRun : pressureRun;
+function newerPublisherAbuseRun(left: ScoreRun | null, right: ScoreRun | null) {
+  if (!left) return right;
+  if (!right) return left;
+  return right.startedAt > left.startedAt ? right : left;
 }
 
 async function getLatestPublisherAbuseScoreRunForModel(ctx: QueryCtx, modelVersion: string) {
@@ -4139,6 +4139,42 @@ async function getLatestPublisherAbuseScoreRunForModel(ctx: QueryCtx, modelVersi
     .withIndex("by_model_version_and_started_at", (q) => q.eq("modelVersion", modelVersion))
     .order("desc")
     .first();
+}
+
+async function getLatestPublisherAbuseSignalRun(ctx: QueryCtx) {
+  const legacyTemporalPhases = [
+    "collecting",
+    "downloads_percentiles",
+    "spike_percentiles",
+    "classifying",
+    "completed",
+  ] as const;
+  const [taggedRun, legacyRuns] = await Promise.all([
+    ctx.db
+      .query("publisherAbuseScoreRuns")
+      .withIndex("by_temporal_pipeline_kind_and_started_at", (q) =>
+        q.eq("temporalPipelineKind", "signals"),
+      )
+      .order("desc")
+      .first(),
+    Promise.all(
+      legacyTemporalPhases.map(
+        async (temporalPipelinePhase) =>
+          await ctx.db
+            .query("publisherAbuseScoreRuns")
+            .withIndex("by_model_version_and_temporal_pipeline_kind_and_phase_started_at", (q) =>
+              q
+                .eq("modelVersion", PUBLISHER_TEMPORAL_ABUSE_MODEL_VERSION)
+                .eq("temporalPipelineKind", undefined)
+                .eq("temporalPipelinePhase", temporalPipelinePhase),
+            )
+            .order("desc")
+            .first(),
+      ),
+    ),
+  ]);
+  const legacyRun = legacyRuns.reduce<ScoreRun | null>(newerPublisherAbuseRun, null);
+  return newerPublisherAbuseRun(taggedRun, legacyRun);
 }
 
 async function getRecentResolvedPublisherAbuseReviewItems(

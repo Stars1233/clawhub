@@ -13,6 +13,7 @@ import {
   advanceScheduledTemporalCandidatesInternalHandler,
   getOrStartScheduledTemporalScanInternalHandler,
   markScheduledTemporalScanFailedInternalHandler,
+  recordScheduledTemporalScanFailureInternalHandler,
   percentileIndex,
   pruneExpiredTemporalScanRowsInternalHandler,
   runScheduledTemporalPublisherAbuseScanInternalHandler,
@@ -197,6 +198,7 @@ describe("scheduled temporal publisher abuse scan", () => {
         })),
         insert,
       },
+      scheduler: { runAfter: vi.fn(async () => null) },
     };
 
     await expect(
@@ -220,10 +222,16 @@ describe("scheduled temporal publisher abuse scan", () => {
     );
   });
 
-  it("does not take over an active cron scan when a moderator requests a rescan", async () => {
+  it("does not replace a recently quiet cron scan when a moderator requests a rescan", async () => {
     const actorUserId = "users:moderator" as Id<"users">;
-    const existing = temporalRun({ trigger: "cron", actorUserId: undefined });
-    const patch = vi.fn(async () => null);
+    const now = Date.now();
+    const existing = temporalRun({
+      trigger: "cron",
+      actorUserId: undefined,
+      startedAt: now - 4 * 24 * 60 * 60 * 1_000,
+      updatedAt: now - 14 * 60 * 1_000,
+    });
+    const patch = vi.fn(async (_id: unknown, _value: unknown) => null);
     const ctx = {
       db: {
         query: vi.fn(() => ({
@@ -243,6 +251,55 @@ describe("scheduled temporal publisher abuse scan", () => {
     ).resolves.toEqual({ runId: existing._id, resumed: true });
 
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("retries the same signal scan after fifteen minutes without progress", async () => {
+    const now = Date.now();
+    const existing = temporalRun({
+      temporalPipelineKind: undefined,
+      startedAt: now - 4 * 24 * 60 * 60 * 1_000,
+      updatedAt: now - 16 * 60 * 1_000,
+    });
+    const patch = vi.fn(async (_id: unknown, _value: unknown) => null);
+    const insert = vi.fn();
+    const scheduler = { runAfter: vi.fn(async () => null) };
+    let queryCount = 0;
+    const ctx = {
+      db: {
+        query: vi.fn(() => ({
+          withIndex: vi.fn(() => ({
+            order: vi.fn(() => ({
+              first: vi.fn(async () => {
+                queryCount += 1;
+                return queryCount === 1 ? null : existing;
+              }),
+            })),
+          })),
+        })),
+        get: vi.fn(async () => existing),
+        patch,
+        insert,
+      },
+      scheduler,
+    };
+
+    await expect(
+      getOrStartScheduledTemporalScanInternalHandler(ctx as unknown as MutationCtx, {
+        trigger: "manual",
+        actorUserId: "users:moderator" as Id<"users">,
+      }),
+    ).resolves.toEqual({ runId: existing._id, resumed: true });
+
+    expect(patch).toHaveBeenCalledWith(
+      existing._id,
+      expect.objectContaining({
+        transientErrorCount: 1,
+        lastTransientError: expect.stringContaining("fifteen minutes"),
+      }),
+    );
+    expect(patch.mock.calls[0]?.[1]).not.toHaveProperty("status");
+    expect(insert).not.toHaveBeenCalled();
+    expect(scheduler.runAfter).toHaveBeenCalledTimes(2);
   });
 
   it("does not launch a second worker for an already-running signal scan", async () => {
@@ -347,8 +404,13 @@ describe("scheduled temporal publisher abuse scan", () => {
     });
   });
 
-  it("persists one bounded source page and advances its durable cursor", async () => {
-    const run = temporalRun();
+  it("persists one bounded source page, advances its cursor, and clears the failure streak", async () => {
+    const run = temporalRun({
+      transientErrorCount: 2,
+      lastTransientError: "previous failure",
+      lastTransientErrorAt: Date.now() - 1_000,
+      nextTransientRetryAt: Date.now() + 30_000,
+    });
     const insert = vi.fn(async () => "inserted");
     const patch = vi.fn(async () => null);
     const ctx = {
@@ -390,6 +452,10 @@ describe("scheduled temporal publisher abuse scan", () => {
         temporalSampleSize: 2,
         temporalDownloadsSum: 100,
         temporalPipelinePhase: "collecting",
+        transientErrorCount: 0,
+        lastTransientError: undefined,
+        lastTransientErrorAt: undefined,
+        nextTransientRetryAt: undefined,
       }),
     );
   });
@@ -459,11 +525,14 @@ describe("scheduled temporal publisher abuse scan", () => {
     });
   });
 
-  it("marks a scheduled scan failed when a scan step throws", async () => {
+  it("retries a scheduled scan step failure without discarding saved progress", async () => {
     const run = temporalRun();
     const scanError = new Error("invalid benchmark payload");
     const runQuery = vi.fn().mockResolvedValueOnce(run).mockRejectedValueOnce(scanError);
-    const runMutation = vi.fn(async (_target: unknown, _args: unknown) => ({ failed: true }));
+    const runMutation = vi.fn(async (_target: unknown, _args: unknown) => ({
+      outcome: "retry_scheduled",
+      failureCount: 1,
+    }));
     const scheduler = { runAfter: vi.fn(async () => null) };
     const handler = runScheduledTemporalPublisherAbuseScanInternalHandler as unknown as (
       ctx: {
@@ -474,15 +543,76 @@ describe("scheduled temporal publisher abuse scan", () => {
       args: { runId?: Id<"publisherAbuseScoreRuns"> },
     ) => Promise<unknown>;
 
-    await expect(handler({ runQuery, runMutation, scheduler }, { runId: run._id })).rejects.toThrow(
-      "invalid benchmark payload",
-    );
+    await expect(
+      handler({ runQuery, runMutation, scheduler }, { runId: run._id }),
+    ).resolves.toEqual({
+      ok: true,
+      runId: run._id,
+      completed: false,
+      phase: "collecting",
+      retrying: true,
+    });
 
     expect(runMutation).toHaveBeenCalledTimes(1);
     expect(runMutation.mock.calls[0]?.[1]).toEqual({
       runId: run._id,
+      expectedUpdatedAt: run.updatedAt,
       errorMessage: "invalid benchmark payload",
     });
+  });
+
+  it("stops a scheduled scan after its fifth consecutive failed attempt", async () => {
+    const run = temporalRun({
+      transientErrorCount: 4,
+      lastTransientError: "fourth failure",
+    });
+    const patch = vi.fn(async () => null);
+    const scheduler = { runAfter: vi.fn(async () => null) };
+    const ctx = { db: { get: vi.fn(async () => run), patch }, scheduler };
+
+    await expect(
+      recordScheduledTemporalScanFailureInternalHandler(ctx as unknown as MutationCtx, {
+        runId: run._id,
+        expectedUpdatedAt: run.updatedAt,
+        errorMessage: "fifth failure",
+      }),
+    ).resolves.toEqual({ outcome: "failed", failureCount: 5 });
+
+    expect(patch).toHaveBeenCalledWith(
+      run._id,
+      expect.objectContaining({
+        status: "failed",
+        temporalScanComplete: false,
+        transientErrorCount: 5,
+        lastTransientError: "fifth failure",
+        errorMessage: "fifth failure",
+      }),
+    );
+    expect(scheduler.runAfter).not.toHaveBeenCalled();
+  });
+
+  it("schedules the next saved-page attempt after a non-terminal failure", async () => {
+    const run = temporalRun({ transientErrorCount: 2 });
+    const patch = vi.fn(async () => null);
+    const scheduler = { runAfter: vi.fn(async () => null) };
+    const ctx = { db: { get: vi.fn(async () => run), patch }, scheduler };
+
+    await expect(
+      recordScheduledTemporalScanFailureInternalHandler(ctx as unknown as MutationCtx, {
+        runId: run._id,
+        expectedUpdatedAt: run.updatedAt,
+        errorMessage: "third failure",
+      }),
+    ).resolves.toEqual({ outcome: "retry_scheduled", failureCount: 3 });
+
+    expect(patch).toHaveBeenCalledWith(
+      run._id,
+      expect.objectContaining({
+        transientErrorCount: 3,
+        lastTransientError: "third failure",
+      }),
+    );
+    expect(scheduler.runAfter).toHaveBeenCalledWith(120_000, expect.anything(), { runId: run._id });
   });
 
   it("persists a failed terminal state for an active scheduled scan", async () => {
